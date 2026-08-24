@@ -1,7 +1,8 @@
-Launchpad36 AI Phase 2 live package
+Launchpad36 AI — Option 2 Public Buyer Intelligence
 
-1. Deploy this ZIP to the existing Vercel project.
-2. In Vercel Project Settings > Environment Variables, add APOLLO_API_KEY.
-3. Redeploy after adding the environment variable.
-4. Retailer rows are clickable; Buyer Intelligence uses /api/buyers server-side.
-5. Apollo search does not reveal email/phone. Enrichment should remain a separate user-approved action.
+1. Replace the existing repo files with these files.
+2. Keep api/buyers.js inside the api folder.
+3. No Apollo API key is required for buyer discovery.
+4. Buyer leads include source/provenance and confidence.
+5. This MVP does not infer emails or phone numbers.
+6. Optional contact enrichment can be added later as a separate, paid-provider action.
