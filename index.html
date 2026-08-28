@@ -29,6 +29,16 @@
 .white-space{background:#f8fbff;border-left:3px solid #2a6de0;padding:12px 14px;border-radius:10px;margin-top:10px}
 @media(max-width:900px){.gap-grid{grid-template-columns:1fr 1fr}.compare-table{display:block;overflow-x:auto}}
 </style>
+
+<style id="v7-current-products-style">
+.current-retail-products{margin-top:18px}
+.current-products-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.current-product-card{border:1px solid #dfe7f0;border-radius:14px;padding:13px;background:#fff}
+.current-product-card b{display:block;margin:4px 0}.current-product-card .price{font-size:13px;font-weight:850}
+.current-product-card .source-link{font-size:10px;margin-top:7px}.current-product-card .source-link a{color:#2766b5;text-decoration:none}
+.refresh-banner{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;background:#f7f9fc;border:1px solid #dfe7f0;border-radius:12px;padding:11px 13px;margin:10px 0}
+@media(max-width:900px){.current-products-grid{grid-template-columns:1fr}}
+</style>
 </head><body><div class="app"><aside class="side"><div class="brand"><img src="/logo.jpeg" alt="L36 logo"><div><b>LAUNCHPAD36 AI</b><small>REVENUE INTELLIGENCE PLATFORM</small></div></div><div class="nav" id="nav"></div><div class="foot">PLATFORM BUILD v3<br>Retail • Distribution • CRM</div></aside><main class="main"><div class="top"><div><span class="dot"></span> REVENUE INTELLIGENCE ONLINE</div><div id="manufacturerTop">NORTHSTAR AUDIO · DEMO</div></div><div class="content">
 <section class="screen active" id="Dashboard"><div class="hero"><div><div class="eyebrow">AI REVENUE DIRECTOR</div><h1>Find every viable path to revenue.</h1><p>Launchpad36 AI evaluates retail, distribution, dealer, e-commerce and buying-group opportunities across the full manufacturer portfolio.</p></div><button class="btn" onclick="go('Find Revenue')">FIND ME REVENUE →</button></div><div class="stats"><div class="card stat"><small>Active accounts</small><strong id="dashAccounts">0</strong><span>Unlimited account database</span></div><div class="card stat"><small>Buyers / contacts</small><strong id="dashBuyers">0</strong><span>Imported + researched</span></div><div class="card stat"><small>Products</small><strong id="dashProducts">0</strong><span>Multiple SKUs supported</span></div><div class="card stat"><small>Pipeline</small><strong id="dashPipeline">$0M</strong><span>Active opportunities</span></div></div><div class="grid2"><div class="card"><h2>Channel Coverage</h2><div class="channelCards" id="channelSummary"></div></div><div class="card"><h2>Recommended Next Action</h2><div class="recommend"><span class="badge">PLATFORM SIGNAL</span><h3>Import your existing account & buyer universe</h3><p class="muted">Start with Excel/CSV or a CRM sync, then let Launchpad36 AI score every account against your product portfolio.</p><button class="btn ghost" onclick="go('Import Data')">IMPORT DATA</button></div></div></div></section>
 <section class="screen page" id="Manufacturer"><div class="pageHeader"><div><div class="eyebrow">MANUFACTURER WORKSPACE</div><h1>Company Profile</h1><p>Manufacturer positioning, channel strategy and product portfolio.</p></div><button class="btn secondary" onclick="saveManufacturer()">SAVE</button></div><div class="card form"><div class="formGrid"><label>Manufacturer name<input id="manufacturerName" value="Northstar Audio"></label><label>Website<input id="manufacturerWebsite" value="www.northstaraudio.com"></label><label>Primary category<input id="manufacturerCategory" value="Consumer Electronics / Audio"></label><label>Current distribution<input id="manufacturerDistribution" value="Specialty AV, DTC"></label><label class="full">Positioning<textarea id="manufacturerPositioning">Design-led premium audio products with simplified setup and strong dealer economics.</textarea></label></div></div></section>
@@ -253,6 +263,72 @@ function injectGapEngine(){
 const _v6RenderIntel=(typeof renderIntel==='function')?renderIntel:null;
 if(_v6RenderIntel){ renderIntel=function(retailer){_v6RenderIntel(retailer);setTimeout(()=>{if(typeof injectV4IntoRetailerPage==='function')injectV4IntoRetailerPage();if(typeof injectCompetitorAgent==='function')injectCompetitorAgent();injectGapEngine();},0)} }
 document.addEventListener('DOMContentLoaded',()=>setTimeout(injectGapEngine,200));
+</script>
+
+
+<script id="v7-current-products">
+async function loadCurrentRetailProducts(){
+  const account=(typeof getCurrentAccountName==='function'?getCurrentAccountName():'') || (typeof selectedRetailer!=='undefined'&&selectedRetailer?selectedRetailer.name:'');
+  const domain=(typeof accountDomain==='function'?accountDomain(account):'');
+  const products=(typeof getManufacturerProductsForGap==='function'?getManufacturerProductsForGap():[]);
+  const status=document.getElementById('l36CurrentProductsStatus'), box=document.getElementById('l36CurrentProductsResults');
+  if(!status||!box)return;
+  if(!domain){status.textContent='Add an account website/domain first.';return;}
+  const categories=[...new Set((products||[]).map(p=>p.category).filter(Boolean))].slice(0,8);
+  status.textContent='Checking current retailer assortment…'; box.innerHTML='';
+  try{
+    const r=await fetch('/api/current-products?domain='+encodeURIComponent(domain)+'&account='+encodeURIComponent(account)+'&categories='+encodeURIComponent(categories.join('|')));
+    const data=await r.json(); if(!r.ok)throw new Error(data.error||'Retail product lookup failed');
+    const items=data.products||[];
+    status.textContent=items.length?`${items.length} current competitive product${items.length===1?'':'s'} detected`:'No current products detected';
+    box.innerHTML=items.length?items.map(p=>`<div class="current-product-card"><span class="badge">CURRENT AT RETAIL</span><b>${p.brand||'Brand'}</b><div>${p.product||p.category||'Relevant product'}</div>${p.price?`<div class="price">${p.price}</div>`:''}${p.availability?`<div class="muted">${p.availability}</div>`:''}<div class="muted">Checked ${p.verified_at||'today'}</div>${p.source_url?`<div class="source-link"><a href="${p.source_url}" target="_blank" rel="noopener">View retailer listing</a></div>`:''}</div>`).join(''):'<div class="current-product-card">No verified retailer products were detected from the public pages checked.</div>';
+  }catch(e){status.textContent='Retail product lookup unavailable';box.innerHTML=`<div class="notice">${e.message}</div>`}
+}
+function injectCurrentRetailProducts(){
+  const host=document.getElementById('intelCard');
+  if(!host||document.getElementById('l36CurrentProductsResults'))return;
+  const wrap=document.createElement('div');wrap.className='current-retail-products';
+  wrap.innerHTML=`<h3 class="sectionTitle">Competitive Products Currently Offered at Retail</h3><div class="refresh-banner"><div><b>Live retailer assortment</b><div class="muted">Shows competitive products detected on the retailer's public site with source links and verification dates.</div></div><button class="btn" onclick="loadCurrentRetailProducts()">REFRESH CURRENT PRODUCTS</button></div><div id="l36CurrentProductsStatus" class="muted">Ready</div><div id="l36CurrentProductsResults" class="current-products-grid" style="margin-top:10px"></div>`;
+  host.appendChild(wrap);
+}
+const _v7RenderIntel=(typeof renderIntel==='function')?renderIntel:null;
+if(_v7RenderIntel){renderIntel=function(retailer){_v7RenderIntel(retailer);setTimeout(()=>{if(typeof injectV4IntoRetailerPage==='function')injectV4IntoRetailerPage();injectCurrentRetailProducts();if(typeof injectCompetitorAgent==='function')injectCompetitorAgent();if(typeof injectGapEngine==='function')injectGapEngine();},0)}}
+document.addEventListener('DOMContentLoaded',()=>setTimeout(injectCurrentRetailProducts,220));
+</script>
+
+
+<script id="v8-db-ui">
+async function l36DatabaseStatus(){
+  const el=document.getElementById('l36DbStatusText');
+  if(!el)return;
+  el.textContent='Checking…';
+  try{const r=await fetch('/api/db/status');const d=await r.json();el.textContent=d.connected?`Connected · ${d.core_tables}/9 core tables ready`:`Not connected · ${d.error||'DATABASE_URL missing'}`;}
+  catch(e){el.textContent='Database unavailable';}
+}
+async function migrateLocalDataToDatabase(){
+  const el=document.getElementById('l36DbStatusText');
+  const payload={
+    accounts:JSON.parse(localStorage.getItem('l36Accounts')||'[]'),
+    buyers:JSON.parse(localStorage.getItem('l36Buyers')||'[]'),
+    products:JSON.parse(localStorage.getItem('l36Products')||'[]')
+  };
+  el.textContent='Migrating browser data…';
+  try{
+    const r=await fetch('/api/data/migrate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json(); if(!r.ok)throw new Error(d.error||'Migration failed');
+    el.textContent=`Migration complete · ${d.accounts} accounts · ${d.buyers} buyers · ${d.products} products`;
+  }catch(e){el.textContent=e.message}
+}
+function injectDatabaseIntegration(){
+  const candidates=[...document.querySelectorAll('.card')];
+  const host=candidates.find(x=>(x.textContent||'').includes('HubSpot'))?.parentElement || document.body;
+  if(document.getElementById('l36DatabaseCard'))return;
+  const card=document.createElement('div');card.id='l36DatabaseCard';card.className='card';
+  card.style.marginTop='14px';
+  card.innerHTML=`<h2>Launchpad36 Intelligence Database</h2><div class="muted">Persistent Postgres storage for accounts, buyers, products/SKUs, competitive retail products, historical observations, scores and weekly agent refreshes.</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"><button class="btn" onclick="l36DatabaseStatus()">CHECK DATABASE</button><button class="btn" onclick="migrateLocalDataToDatabase()">MIGRATE BROWSER DATA</button><span id="l36DbStatusText" class="muted">Not checked</span></div>`;
+  host.appendChild(card);
+}
+document.addEventListener('DOMContentLoaded',()=>setTimeout(injectDatabaseIntegration,350));
 </script>
 
 </body></html>
