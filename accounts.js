@@ -1,5 +1,5 @@
-
 import { db, upsertAccount } from './_db.js';
+import { requireAdmin } from './_auth.js';
 export default async function handler(req,res){
  try{
   if(req.method==='GET'){
@@ -7,6 +7,7 @@ export default async function handler(req,res){
     return res.status(200).json({accounts:rows});
   }
   if(req.method==='POST'){
+    if(!requireAdmin(req,res)) return;
     const body=Array.isArray(req.body)?req.body:[req.body]; const out=[];
     for(const a of body) out.push(await upsertAccount(a||{}));
     return res.status(200).json({accounts:out});

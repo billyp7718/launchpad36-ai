@@ -1,5 +1,5 @@
-
 import { db, upsertBuyer } from './_db.js';
+import { requireAdmin } from './_auth.js';
 export default async function handler(req,res){
  try{
   if(req.method==='GET'){
@@ -9,6 +9,7 @@ export default async function handler(req,res){
     return res.status(200).json({buyers:rows});
   }
   if(req.method==='POST'){
+    if(!requireAdmin(req,res)) return;
     const body=Array.isArray(req.body)?req.body:[req.body]; const out=[];
     for(const b of body) out.push(await upsertBuyer(b||{}));
     return res.status(200).json({buyers:out});

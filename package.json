@@ -1,7 +1,7 @@
 {
   "name": "launchpad36-ai",
   "private": true,
-  "version": "8.0.0",
+  "version": "9.1.0",
   "type": "module",
   "dependencies": {
     "postgres": "^3.4.7"
