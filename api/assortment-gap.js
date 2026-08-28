@@ -1,3 +1,4 @@
+import { requireInternal } from './_auth.js';
 
 const BRANDS=['Sony','Samsung','LG','Bose','Sonos','JBL','Klipsch','KEF','Polk Audio','Bowers & Wilkins','Yamaha','Denon','Marantz','SVS','Audioengine','Sennheiser','Marshall','Vizio','Sanus','Rocketfish','Chief','Kanto','Ergotron','Humanscale','FlexiSpot','Vari','UPLIFT','Branch'];
 function safeDomain(x){const d=String(x||'').toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)?d:''}
@@ -8,6 +9,7 @@ function pnum(s=''){const m=String(s).match(/\$?\s*([\d,]+(?:\.\d{2})?)/);return
 function clamp(n){return Math.max(0,Math.min(100,n))}
 function feats(s=''){const a=['wireless','bluetooth','wifi','premium','compact','portable','soundbar','speaker','subwoofer','mount','desk','standing','motorized','adjustable','ergonomic','audio','video','home theater','smart','app','voice','dolby','atmos','hdmi','earc','multiroom','active','powered'];s=String(s).toLowerCase();return a.filter(x=>s.includes(x))}
 export default async function handler(req,res){
+ if(!requireInternal(req,res)) return;
  if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
  const {domain:rd,account,products=[]}=req.body||{},d=safeDomain(rd);
  if(!d)return res.status(400).json({error:'Valid retailer domain required'});

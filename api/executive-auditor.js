@@ -1,15 +1,15 @@
 import { db } from './_db.js';
-import { requireAdmin } from './_auth.js';
+import { requireInternal } from './_auth.js';
 const MODEL=process.env.L36_AUDITOR_MODEL||process.env.L36_AGENT_MODEL||'openai/gpt-5.6-sol';
 async function gateway(messages){
- const key=process.env.AI_GATEWAY_API_KEY||''; if(!key) throw new Error('AI_GATEWAY_API_KEY is not configured');
+ const key=process.env.AI_GATEWAY_API_KEY||process.env.VERCEL_OIDC_TOKEN||''; if(!key) throw new Error('AI Gateway authentication is not configured');
  const r=await fetch('https://ai-gateway.vercel.sh/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({model:MODEL,messages,temperature:.15,response_format:{type:'json_object'}})});
  if(!r.ok) throw new Error(`AI Gateway ${r.status}: ${await r.text()}`); const j=await r.json();
  return JSON.parse((j.choices?.[0]?.message?.content||'{}').replace(/^```json\s*/i,'').replace(/```$/,'').trim());
 }
 export default async function handler(req,res){
  if(req.method!=='POST') return res.status(405).json({error:'Method not allowed'});
- if(!requireAdmin(req,res)) return;
+ if(!requireInternal(req,res)) return;
  try{
   const sql=db(), manufacturerId=req.body?.manufacturer_id||null, accountId=req.body?.account_id||null;
   const [accounts,products,buyers,intelligence,changes,runs]=await Promise.all([

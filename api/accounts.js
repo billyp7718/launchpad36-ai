@@ -1,7 +1,8 @@
-
 import { db, upsertAccount } from './_db.js';
+import { requireAdmin } from './_auth.js';
 export default async function handler(req,res){
  try{
+  if(!requireAdmin(req,res)) return;
   if(req.method==='GET'){
     const sql=db(); const rows=await sql`select * from accounts where active=true order by score desc, name`;
     return res.status(200).json({accounts:rows});
@@ -11,6 +12,6 @@ export default async function handler(req,res){
     for(const a of body) out.push(await upsertAccount(a||{}));
     return res.status(200).json({accounts:out});
   }
-  res.status(405).json({error:'Method not allowed'});
- }catch(e){res.status(500).json({error:e.message})}
+  return res.status(405).json({error:'Method not allowed'});
+ }catch(e){return res.status(500).json({error:e.message})}
 }

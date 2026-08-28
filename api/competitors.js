@@ -1,3 +1,4 @@
+import { requireInternal } from './_auth.js';
 
 const COMMON_BRANDS = [
   'Sony','Samsung','LG','Bose','Sonos','JBL','Klipsch','KEF','Polk Audio','Definitive Technology',
@@ -22,6 +23,7 @@ async function fetchPage(url){
 function text(html=''){return html.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim()}
 function sameDomain(url,domain){try{const h=new URL(url).hostname.replace(/^www\./,'').toLowerCase();return h===domain||h.endsWith('.'+domain)}catch{return false}}
 export default async function handler(req,res){
+ if(!requireInternal(req,res)) return;
   if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});
   const domain=safeDomain(req.query.domain); const account=String(req.query.account||domain);
   if(!domain)return res.status(400).json({error:'Valid retailer domain required'});

@@ -1,7 +1,8 @@
-
 import { db } from './_db.js';
+import { requireAdmin } from './_auth.js';
 export default async function handler(req,res){
  try{
+  if(!requireAdmin(req,res)) return;
   const sql=db();
   if(req.method==='GET'){
     const rows=await sql`
@@ -13,9 +14,11 @@ export default async function handler(req,res){
   if(req.method==='POST'){
     const list=Array.isArray(req.body)?req.body:[req.body], out=[];
     for(const p of list){
+      const manufacturerId=p.manufacturer_id||null;
+      const brandId=p.brand_id||null;
       const prod=(await sql`
-        insert into products(name,category,positioning,differentiator,updated_at)
-        values(${p.name||''},${p.category||''},${p.positioning||p.position||''},${p.differentiator||p.diff||''},now())
+        insert into products(manufacturer_id,brand_id,name,category,positioning,differentiator,updated_at)
+        values(${manufacturerId},${brandId},${p.name||''},${p.category||''},${p.positioning||p.position||''},${p.differentiator||p.diff||''},now())
         returning *`)[0];
       for(const v of (p.variants||[])){
         await sql`
@@ -27,6 +30,6 @@ export default async function handler(req,res){
     }
     return res.status(200).json({products:out});
   }
-  res.status(405).json({error:'Method not allowed'});
- }catch(e){res.status(500).json({error:e.message})}
+  return res.status(405).json({error:'Method not allowed'});
+ }catch(e){return res.status(500).json({error:e.message})}
 }

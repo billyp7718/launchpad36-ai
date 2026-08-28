@@ -17,6 +17,10 @@ function safeEqual(a,b){
   const aa=Buffer.from(String(a)), bb=Buffer.from(String(b));
   return aa.length===bb.length && crypto.timingSafeEqual(aa,bb);
 }
+function bearer(req){
+  const auth=String(req.headers.authorization||'');
+  return auth.startsWith('Bearer ')?auth.slice(7):'';
+}
 export function createSessionCookie(){
   const secret=process.env.ADMIN_SECRET||'';
   if(!secret) throw new Error('ADMIN_SECRET is not configured');
@@ -32,10 +36,22 @@ export function isAdmin(req){
   if(!payload||!sig||!safeEqual(sig,sign(payload,secret))) return false;
   try{const data=JSON.parse(Buffer.from(payload,'base64url').toString('utf8')); return data.role==='admin' && Number(data.exp)>Math.floor(Date.now()/1000)}catch{return false}
 }
+export function isAdminBearer(req){
+  const secret=process.env.ADMIN_SECRET||'';
+  return Boolean(secret) && safeEqual(bearer(req),secret);
+}
+export function isCron(req){
+  const secret=process.env.CRON_SECRET||'';
+  return Boolean(secret) && safeEqual(bearer(req),secret);
+}
 export function requireAdmin(req,res){
   if(!process.env.ADMIN_SECRET){res.status(503).json({error:'ADMIN_SECRET is not configured'});return false}
-  if(!isAdmin(req)){res.status(401).json({error:'Admin session required'});return false}
+  if(!isAdmin(req) && !isAdminBearer(req)){res.status(401).json({error:'Admin authentication required'});return false}
   return true;
+}
+export function requireInternal(req,res){
+  if(isAdmin(req) || isAdminBearer(req) || isCron(req)) return true;
+  res.status(401).json({error:'Internal authentication required'}); return false;
 }
 export function verifySecret(candidate){
   const secret=process.env.ADMIN_SECRET||''; if(!secret) return false;

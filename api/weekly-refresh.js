@@ -25,8 +25,8 @@ export default async function handler(req,res){
       try{
         const base=origin(req);
         const [br,pr]=await Promise.all([
-          fetch(`${base}/api/decision-makers?domain=${encodeURIComponent(a.domain)}&account=${encodeURIComponent(a.name)}`),
-          fetch(`${base}/api/current-products?domain=${encodeURIComponent(a.domain)}&account=${encodeURIComponent(a.name)}&categories=${encodeURIComponent(a.category||'')}`)
+          fetch(`${base}/api/decision-makers?domain=${encodeURIComponent(a.domain)}&account=${encodeURIComponent(a.name)}`,{headers:{authorization:`Bearer ${secret}`}}),
+          fetch(`${base}/api/current-products?domain=${encodeURIComponent(a.domain)}&account=${encodeURIComponent(a.name)}&categories=${encodeURIComponent(a.category||'')}`,{headers:{authorization:`Bearer ${secret}`}})
         ]);
         if(br.ok){
           const bd=await br.json();
@@ -43,6 +43,10 @@ export default async function handler(req,res){
             await sql`insert into retail_observations(account_id,observation_type,entity_key,payload,source_url) values(${a.id},'competitive_product',${`${p.brand}|${p.product}`},${sql.json(p)},${p.source_url||''})`;
             pu++;
           }
+        }
+        if(process.env.AI_GATEWAY_API_KEY && process.env.L36_AGENT_AUTO_REFRESH!=='false'){
+          const ar=await fetch(`${base}/api/intelligence-agent`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${secret}`},body:JSON.stringify({account_id:a.id,refresh:false})});
+          if(!ar.ok) errors.push({account:a.name,agent_error:`${ar.status} ${String(await ar.text()).slice(0,400)}`});
         }
       }catch(e){errors.push({account:a.name,error:e.message})}
     }

@@ -1,3 +1,4 @@
+import { requireInternal } from './_auth.js';
 
 const BRANDS=['Sony','Samsung','LG','Bose','Sonos','JBL','Klipsch','KEF','Polk Audio','Bowers & Wilkins','Yamaha','Denon','Marantz','SVS','Audioengine','Sennheiser','Marshall','Vizio','Sanus','Rocketfish','Chief','Kanto','Ergotron','Humanscale','FlexiSpot','Vari','UPLIFT','Branch'];
 function safeDomain(x){const d=String(x||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)?d:''}
@@ -5,6 +6,7 @@ async function page(u){const c=new AbortController(),t=setTimeout(()=>c.abort(),
 function txt(h=''){return h.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim()}
 function same(u,d){try{const h=new URL(u).hostname.replace(/^www\./,'').toLowerCase();return h===d||h.endsWith('.'+d)}catch{return false}}
 export default async function handler(req,res){
+ if(!requireInternal(req,res)) return;
  if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});
  const d=safeDomain(req.query.domain),account=String(req.query.account||d);
  if(!d)return res.status(400).json({error:'Valid retailer domain required'});

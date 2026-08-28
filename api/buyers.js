@@ -1,7 +1,8 @@
-
 import { db, upsertBuyer } from './_db.js';
+import { requireAdmin } from './_auth.js';
 export default async function handler(req,res){
  try{
+  if(!requireAdmin(req,res)) return;
   if(req.method==='GET'){
     const sql=db(); const account=req.query.account_id||null;
     const rows=account ? await sql`select * from buyers where account_id=${account} order by updated_at desc`
@@ -13,6 +14,6 @@ export default async function handler(req,res){
     for(const b of body) out.push(await upsertBuyer(b||{}));
     return res.status(200).json({buyers:out});
   }
-  res.status(405).json({error:'Method not allowed'});
- }catch(e){res.status(500).json({error:e.message})}
+  return res.status(405).json({error:'Method not allowed'});
+ }catch(e){return res.status(500).json({error:e.message})}
 }
