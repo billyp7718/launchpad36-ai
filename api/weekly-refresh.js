@@ -1,5 +1,5 @@
-
 import { db, upsertBuyer, upsertCompetitiveProduct } from './_db.js';
+import { persistEvidence } from './_evidence.js';
 
 function origin(req){
   const proto=req.headers['x-forwarded-proto']||'https';
@@ -17,7 +17,7 @@ export default async function handler(req,res){
   if(auth!==`Bearer ${secret}`) return res.status(401).json({error:'Unauthorized'});
   const sql=db();
   const run=(await sql`insert into refresh_runs(job_type,status) values('weekly-buyer-product-refresh','started') returning id`)[0];
-  let ap=0,bu=0,pu=0; const errors=[];
+  let ap=0,bu=0,pu=0,ev=0; const errors=[];
   try{
     const accounts=await sql`select * from accounts where active=true and domain<>'' order by name`;
     for(const a of accounts){
@@ -33,25 +33,28 @@ export default async function handler(req,res){
           for(const b of (bd.people||[])){
             await upsertBuyer({account_id:a.id,name:b.name,title:b.title,email:b.email,phone:b.phone,source:b.source_label||'Public business source',source_url:b.source_url,confidence:b.confidence,verified_at:b.verified_at,status:'Current'});
             await sql`insert into retail_observations(account_id,observation_type,entity_key,payload,source_url) values(${a.id},'buyer',${`${b.name}|${b.title}`},${sql.json(b)},${b.source_url||''})`;
-            bu++;
+            await persistEvidence({account_id:a.id,evidence_type:'buyer',entity_key:`${b.name}|${b.title}`,payload:b,source_url:b.source_url||'',source_type:'corporate_page',observed_at:b.verified_at||new Date().toISOString(),confidence:b.confidence||70});
+            bu++;ev++;
           }
         }
         if(pr.ok){
           const pd=await pr.json();
           for(const p of (pd.products||[])){
-            await upsertCompetitiveProduct({account_id:a.id,brand:p.brand,product_name:p.product,price_text:p.price,price_numeric:priceNum(p.price),availability:p.availability,source_url:p.source_url,verified_at:p.verified_at,raw_text:p.product});
+            const pn=priceNum(p.price);
+            await upsertCompetitiveProduct({account_id:a.id,brand:p.brand,product_name:p.product,price_text:p.price,price_numeric:pn,availability:p.availability,source_url:p.source_url,verified_at:p.verified_at,raw_text:p.product});
             await sql`insert into retail_observations(account_id,observation_type,entity_key,payload,source_url) values(${a.id},'competitive_product',${`${p.brand}|${p.product}`},${sql.json(p)},${p.source_url||''})`;
-            pu++;
+            await persistEvidence({account_id:a.id,evidence_type:'competitive_product',entity_key:`${p.brand}|${p.product}`,payload:{...p,price_numeric:pn},source_url:p.source_url||'',source_type:'retailer_site',observed_at:p.verified_at||new Date().toISOString(),confidence:75});
+            pu++;ev++;
           }
         }
-        if(process.env.AI_GATEWAY_API_KEY && process.env.L36_AGENT_AUTO_REFRESH!=='false'){
+        if((process.env.AI_GATEWAY_API_KEY||process.env.VERCEL_OIDC_TOKEN) && process.env.L36_AGENT_AUTO_REFRESH!=='false'){
           const ar=await fetch(`${base}/api/intelligence-agent`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${secret}`},body:JSON.stringify({account_id:a.id,refresh:false})});
           if(!ar.ok) errors.push({account:a.name,agent_error:`${ar.status} ${String(await ar.text()).slice(0,400)}`});
         }
       }catch(e){errors.push({account:a.name,error:e.message})}
     }
     await sql`update refresh_runs set status='completed',accounts_processed=${ap},buyers_upserted=${bu},products_upserted=${pu},errors=${sql.json(errors)},finished_at=now() where id=${run.id}`;
-    res.status(200).json({status:'completed',accounts_processed:ap,buyers_upserted:bu,products_upserted:pu,errors});
+    res.status(200).json({status:'completed',accounts_processed:ap,buyers_upserted:bu,products_upserted:pu,evidence_persisted:ev,errors});
   }catch(e){
     errors.push({fatal:e.message});
     await sql`update refresh_runs set status='failed',errors=${sql.json(errors)},finished_at=now() where id=${run.id}`;
