@@ -1,5 +1,5 @@
 
-import { db, upsertAccount, upsertBuyer } from '../../lib/db.js';
+import { db, upsertAccount, upsertBuyer } from './_db.js';
 export default async function handler(req,res){
   if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
   const sql=db(); const {accounts=[],buyers=[],products=[]}=req.body||{};

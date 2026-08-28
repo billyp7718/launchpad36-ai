@@ -1,0 +1,53 @@
+LAUNCHPAD36 AI v8.1 — GITHUB-SAFE DATABASE BUILD
+
+WHY THIS BUILD
+The prior upload flattened nested folders. v8.1 deliberately needs only:
+- root files
+- one /api folder
+No /lib, /database, /api/data, /api/db, or /api/crm subfolders are required.
+
+UPLOAD STRUCTURE
+Repository root:
+  index.html
+  logo.jpeg
+  package.json
+  vercel.json
+  README.txt
+
+/api folder:
+  _db.js
+  accounts.js
+  assortment-gap.js
+  buyers.js
+  competitive-products.js
+  competitors.js
+  crm-status.js
+  current-products.js
+  db-init.js
+  db-status.js
+  decision-makers.js
+  migrate.js
+  products.js
+  weekly-refresh.js
+
+DATABASE ENVIRONMENT VARIABLES
+  DATABASE_URL
+  ADMIN_SECRET
+  CRON_SECRET
+
+DATABASE SETUP
+1. Provision a Postgres database (Neon via Vercel Marketplace is a good fit).
+2. Connect it to the Vercel project so DATABASE_URL is available to Production.
+3. Add ADMIN_SECRET and CRON_SECRET as strong random values.
+4. Redeploy.
+5. Initialize schema:
+   POST https://launchpad36-ai.vercel.app/api/db-init
+   Authorization: Bearer <ADMIN_SECRET>
+6. Verify:
+   GET https://launchpad36-ai.vercel.app/api/db-status
+7. In the app, open Integrations > Launchpad36 Intelligence Database.
+8. Click CHECK DATABASE.
+9. Click MIGRATE BROWSER DATA once.
+
+SECURITY
+CRON_SECRET now fails closed: weekly-refresh refuses execution if CRON_SECRET is not configured.

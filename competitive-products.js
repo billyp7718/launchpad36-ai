@@ -1,5 +1,5 @@
 
-import { db, upsertCompetitiveProduct } from '../../lib/db.js';
+import { db, upsertCompetitiveProduct } from './_db.js';
 export default async function handler(req,res){
  try{
   if(req.method==='GET'){

@@ -1,9 +1,8 @@
 {
-  "cleanUrls": true,
   "crons": [
     {
       "path": "/api/weekly-refresh",
-      "schedule": "0 6 * * 0"
+      "schedule": "0 13 * * 1"
     }
   ]
 }

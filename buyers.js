@@ -1,5 +1,5 @@
 
-import { db, upsertBuyer } from '../../lib/db.js';
+import { db, upsertBuyer } from './_db.js';
 export default async function handler(req,res){
  try{
   if(req.method==='GET'){
