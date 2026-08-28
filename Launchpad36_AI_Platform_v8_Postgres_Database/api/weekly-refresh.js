@@ -1,5 +1,5 @@
 
-import { db, upsertBuyer, upsertCompetitiveProduct } from '../lib/db.js';
+import { db, upsertBuyer, upsertCompetitiveProduct } from './_db.js';
 
 function origin(req){
   const proto=req.headers['x-forwarded-proto']||'https';
@@ -13,7 +13,8 @@ function priceNum(s=''){
 export default async function handler(req,res){
   const auth=req.headers.authorization||'';
   const secret=process.env.CRON_SECRET||'';
-  if(secret && auth!==`Bearer ${secret}`) return res.status(401).json({error:'Unauthorized'});
+  if(!secret) return res.status(503).json({error:'CRON_SECRET is not configured'});
+  if(auth!==`Bearer ${secret}`) return res.status(401).json({error:'Unauthorized'});
   const sql=db();
   const run=(await sql`insert into refresh_runs(job_type,status) values('weekly-buyer-product-refresh','started') returning id`)[0];
   let ap=0,bu=0,pu=0; const errors=[];

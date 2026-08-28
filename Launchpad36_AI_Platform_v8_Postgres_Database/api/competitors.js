@@ -3,7 +3,7 @@ const COMMON_BRANDS = [
   'Sony','Samsung','LG','Bose','Sonos','JBL','Klipsch','KEF','Polk Audio','Definitive Technology',
   'Bowers & Wilkins','Bang & Olufsen','Yamaha','Denon','Marantz','Onkyo','Pioneer','SVS','Audioengine',
   'Sennheiser','Marshall','Harman Kardon','Vizio','TCL','Hisense','Roku','Sanus','Rocketfish','Mount-It!',
-  'Vogel\\'s','Peerless-AV','Chief','Kanto','Ergotron','Humanscale','FlexiSpot','Vari','UPLIFT','Branch'
+  "Vogel's",'Peerless-AV','Chief','Kanto','Ergotron','Humanscale','FlexiSpot','Vari','UPLIFT','Branch'
 ];
 function safeDomain(input){
   const d=String(input||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];
