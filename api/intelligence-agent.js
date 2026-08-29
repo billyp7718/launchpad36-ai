@@ -1,6 +1,7 @@
 import { db } from './_db.js';
 import { requireInternal } from './_auth.js';
 import { trustMetrics, isExternalEvidence } from './_evidence.js';
+import { resolveTenant } from './_tenant.js';
 
 const MODEL=process.env.L36_AGENT_MODEL||'openai/gpt-5.6-sol';
 const MIN_EVIDENCE=Math.max(1,Number(process.env.L36_MIN_EVIDENCE_ITEMS)||3);
@@ -57,21 +58,25 @@ function nullScores(){return {assortment_gap:null,price_white_space:null,feature
 export default async function handler(req,res){
   if(req.method!=='POST') return res.status(405).json({error:'Method not allowed'});
   if(!requireInternal(req,res)) return;
+  const tenant=await resolveTenant(req,res,{allowCron:true});if(!tenant)return;
   if(!gatewayKey()) return res.status(503).json({error:'AI Gateway authentication is not configured',code:'AGENT_PREFLIGHT_FAILED'});
-  const sql=db(),accountId=req.body?.account_id,manufacturerId=req.body?.manufacturer_id||null;
+  const sql=db(),accountId=req.body?.account_id,manufacturerId=tenant.tenant_id||req.body?.manufacturer_id||null;
+  if(tenant.source==='cron'&&!manufacturerId)return res.status(400).json({error:'manufacturer_id is required for cron agent runs'});
   if(!accountId) return res.status(400).json({error:'account_id is required'});
   let run;
   try{
     const account=(await sql`select * from accounts where id=${accountId}`)[0];
     if(!account) return res.status(404).json({error:'Account not found'});
-    const [products,buyers,competitive,observations,scores,changes,evidence]=await Promise.all([
+    const [products,buyers,competitive,observations,scores,changes,evidence,livingEvidence,livingChanges]=await Promise.all([
       manufacturerId?sql`select p.*,coalesce(json_agg(v) filter(where v.id is not null),'[]') variants from products p left join product_variants v on v.product_id=p.id and v.active=true where p.manufacturer_id=${manufacturerId} and p.active=true group by p.id`:sql`select p.*,coalesce(json_agg(v) filter(where v.id is not null),'[]') variants from products p left join product_variants v on v.product_id=p.id and v.active=true where p.active=true group by p.id`,
       sql`select * from buyers where account_id=${accountId} order by updated_at desc limit 100`,
       sql`select * from competitive_products where account_id=${accountId} order by updated_at desc limit 250`,
       sql`select * from retail_observations where account_id=${accountId} order by observed_at desc limit 250`,
       sql`select * from opportunity_scores where account_id=${accountId} order by scored_at desc limit 30`,
       sql`select * from change_events where account_id=${accountId} order by detected_at desc limit 100`,
-      sql`select * from evidence_items where account_id=${accountId} order by observed_at desc limit 500`
+      sql`select * from evidence_items where account_id=${accountId} order by observed_at desc limit 500`,
+      sql`select ce.*,es.source_url,es.source_kind from commercial_evidence ce join evidence_sources es on es.id=ce.source_id where ce.account_id=${accountId} order by ce.observed_at desc limit 500`,
+      sql`select * from intelligence_change_events where subject_key like ${accountId+'%'} order by detected_at desc limit 100`
     ]);
     const trust=trustMetrics(evidence);
     const commercialProducts=products.filter(p=>!qaOnlyProduct(p));
@@ -81,10 +86,10 @@ export default async function handler(req,res){
     if(trust.evidence_coverage<MIN_COVERAGE) reasons.push('INSUFFICIENT_EVIDENCE_COVERAGE');
     const scoring={eligible:reasons.length===0,status:reasons.length?'NOT_SCORABLE':'SCORABLE',reasons,min_evidence_items:MIN_EVIDENCE,min_evidence_coverage:MIN_COVERAGE};
     const inputEvidence=internalEvidence(account,products);
-    const evidenceCatalog=[...inputEvidence,...evidence.map(e=>({...e,id:String(e.id)}))];
-    const context={account,products,buyers,competitive,observations,scores,changes,evidence,evidence_catalog:evidenceCatalog,trust,scoring};
+    const evidenceCatalog=[...inputEvidence,...evidence.map(e=>({...e,id:String(e.id)})),...livingEvidence.map(e=>({...e,id:`living:${e.id}`,source_type:e.acquired_by||'public',source_url:e.source_url||''}))];
+    const context={account,products,buyers,competitive,observations,scores,changes,evidence,living_evidence:livingEvidence,living_change_events:livingChanges,evidence_catalog:evidenceCatalog,trust,scoring,truth_write_policy:'LLM output is advisory only and cannot update current_commercial_truth'};
     run=(await sql`insert into intelligence_runs(manufacturer_id,account_id,status,model,prompt_version,input_snapshot) values(${manufacturerId},${accountId},'running',${MODEL},'v9.3',${sql.json(context)}) returning *`)[0];
-    const system=`You are the L36 Retail Revenue Intelligence Agent for product manufacturers. Use only supplied evidence. Never invent products, prices, availability, buyers, emails, phones, retailer facts, source URLs, or evidence IDs. Every observed claim must cite one or more exact IDs from evidence_catalog. Source text alone never counts as evidence. Distinguish certainty that data is missing from confidence in a commercial opportunity. If scoring.eligible is false, overall_score and every score must be null, scoring_status must be NOT_SCORABLE, and no SKU may be commercially recommended. QA-only products are never commercial recommendations. Return strict JSON with scoring_status; overall_score number or null; scores {assortment_gap,price_white_space,feature_differentiation,competitive_density,buyer_accessibility,online_fit,in_store_fit} numbers or null; summary; assortment_gap; competitive_analysis; buyer_intelligence; online_strategy array; in_store_strategy array; recommended_sku; changes array; next_actions array [{priority,action,owner_role,status,dependency,required_artifact,completion_criteria,due_days}]; claims array [{type,claim,confidence,evidence_ids,last_verified,sources}]; inference_confidence 0-100; recommendation_confidence 0-100. If evidence is weak say "Insufficient evidence to determine."`;
+    const system=`You are the L36 Retail Revenue Intelligence Agent for product manufacturers. Use only supplied evidence. Never invent products, prices, availability, buyers, emails, phones, retailer facts, source URLs, or evidence IDs. Every observed claim must cite one or more exact IDs from evidence_catalog. Source text alone never counts as evidence. Your output is advisory and must never overwrite current_commercial_truth; conflicting or insufficient evidence must remain UNKNOWN or REVIEW_REQUIRED. Distinguish certainty that data is missing from confidence in a commercial opportunity. If scoring.eligible is false, overall_score and every score must be null, scoring_status must be NOT_SCORABLE, and no SKU may be commercially recommended. QA-only products are never commercial recommendations. Return strict JSON with scoring_status; overall_score number or null; scores {assortment_gap,price_white_space,feature_differentiation,competitive_density,buyer_accessibility,online_fit,in_store_fit} numbers or null; summary; assortment_gap; competitive_analysis; buyer_intelligence; online_strategy array; in_store_strategy array; recommended_sku; changes array; next_actions array [{priority,action,owner_role,status,dependency,required_artifact,completion_criteria,due_days}]; claims array [{type,claim,confidence,evidence_ids,last_verified,sources}]; inference_confidence 0-100; recommendation_confidence 0-100. If evidence is weak say "Insufficient evidence to determine."`;
     const record=await gateway([{role:'system',content:system},{role:'user',content:JSON.stringify(context)}]);
     if(!scoring.eligible){record.scoring_status='NOT_SCORABLE';record.overall_score=null;record.scores=nullScores();record.recommended_sku=null}
     else record.scoring_status='SCORABLE';
@@ -107,7 +112,8 @@ export default async function handler(req,res){
     await sql`update intelligence_runs set status='completed',output=${sql.json(record)},verification=${sql.json(verificationSummary)},confidence=${record.confidence},finished_at=now() where id=${run.id}`;
     const overall=record.overall_score===null?null:Math.max(0,Math.min(100,Number(record.overall_score)||0));
     const saved=(await sql`insert into account_intelligence(manufacturer_id,account_id,run_id,overall_score,record,confidence) values(${manufacturerId},${accountId},${run.id},${overall},${sql.json(record)},${record.confidence}) returning *`)[0];
-    return res.status(200).json({run_id:run.id,intelligence_id:saved.id,model:MODEL,verification:verificationSummary,record});
+    let proposalId=null;if(livingChanges[0]){const proposal=(await sql`insert into intelligence_proposals(manufacturer_id,account_id,change_event_id,proposal_type,proposed_payload,model,status,deterministic_update_allowed) values(${manufacturerId},${accountId},${livingChanges[0].id},'L36_AGENT_ASSESSMENT',${sql.json({run_id:run.id,record,verification:verificationSummary})},${MODEL},'REVIEW_REQUIRED',false) returning id`)[0];proposalId=proposal?.id||null}
+    return res.status(200).json({run_id:run.id,intelligence_id:saved.id,living_proposal_id:proposalId,model:MODEL,verification:verificationSummary,truth_write_policy:{llm_can_update_verified_truth:false,conflicts_remain_review_required:true},record});
   }catch(e){
     if(run) await sql`update intelligence_runs set status='failed',errors=${sql.json([{code:'AGENT_RUN_FAILED',message:String(e.message).slice(0,800)}])},finished_at=now() where id=${run.id}`.catch(()=>{});
     return res.status(500).json({error:e.message});
