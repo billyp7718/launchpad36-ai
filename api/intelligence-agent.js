@@ -72,11 +72,11 @@ export default async function handler(req,res){
       sql`select * from buyers where account_id=${accountId} order by updated_at desc limit 100`,
       sql`select * from competitive_products where account_id=${accountId} order by updated_at desc limit 250`,
       sql`select * from retail_observations where account_id=${accountId} order by observed_at desc limit 250`,
-      sql`select * from opportunity_scores where account_id=${accountId} order by scored_at desc limit 30`,
+      sql`select * from opportunity_scores where account_id=${accountId} and manufacturer_id=${manufacturerId} order by scored_at desc limit 30`,
       sql`select * from change_events where account_id=${accountId} order by detected_at desc limit 100`,
       sql`select * from evidence_items where account_id=${accountId} order by observed_at desc limit 500`,
       sql`select ce.*,es.source_url,es.source_kind from commercial_evidence ce join evidence_sources es on es.id=ce.source_id where ce.account_id=${accountId} order by ce.observed_at desc limit 500`,
-      sql`select * from intelligence_change_events where subject_key like ${accountId+'%'} order by detected_at desc limit 100`
+      sql`select ice.* from intelligence_change_events ice where ice.account_id=${accountId} or (${account.organization_id||null}::uuid is not null and ice.organization_id=${account.organization_id||null}) order by ice.detected_at desc limit 100`
     ]);
     const trust=trustMetrics(evidence);
     const commercialProducts=products.filter(p=>!qaOnlyProduct(p));
@@ -112,7 +112,7 @@ export default async function handler(req,res){
     await sql`update intelligence_runs set status='completed',output=${sql.json(record)},verification=${sql.json(verificationSummary)},confidence=${record.confidence},finished_at=now() where id=${run.id}`;
     const overall=record.overall_score===null?null:Math.max(0,Math.min(100,Number(record.overall_score)||0));
     const saved=(await sql`insert into account_intelligence(manufacturer_id,account_id,run_id,overall_score,record,confidence) values(${manufacturerId},${accountId},${run.id},${overall},${sql.json(record)},${record.confidence}) returning *`)[0];
-    let proposalId=null;if(livingChanges[0]){const proposal=(await sql`insert into intelligence_proposals(manufacturer_id,account_id,change_event_id,proposal_type,proposed_payload,model,status,deterministic_update_allowed) values(${manufacturerId},${accountId},${livingChanges[0].id},'L36_AGENT_ASSESSMENT',${sql.json({run_id:run.id,record,verification:verificationSummary})},${MODEL},'REVIEW_REQUIRED',false) returning id`)[0];proposalId=proposal?.id||null}
+    let proposalId=null;if(livingChanges[0]){const proposal=(await sql`insert into intelligence_proposals(manufacturer_id,account_id,change_event_id,proposal_type,proposed_payload,model,status,deterministic_update_allowed) values(${manufacturerId},${accountId},${livingChanges[0].id},'L36_AGENT_ASSESSMENT',${sql.json({run_id:run.id,record,verification:verificationSummary})},${MODEL},'REVIEW_REQUIRED',false) returning id`)[0];proposalId=proposal?.id||null;await sql`insert into intelligence_change_event_processing(change_event_id,processor,status,attempts,last_attempt_at,processed_at,metadata,updated_at) values(${livingChanges[0].id},${`l36-agent:${manufacturerId}`},'processed',1,now(),now(),${sql.json({run_id:run.id,proposal_id:proposalId})},now()) on conflict(change_event_id,processor) do update set status='processed',attempts=intelligence_change_event_processing.attempts+1,last_attempt_at=now(),processed_at=now(),metadata=excluded.metadata,updated_at=now()`}
     return res.status(200).json({run_id:run.id,intelligence_id:saved.id,living_proposal_id:proposalId,model:MODEL,verification:verificationSummary,truth_write_policy:{llm_can_update_verified_truth:false,conflicts_remain_review_required:true},record});
   }catch(e){
     if(run) await sql`update intelligence_runs set status='failed',errors=${sql.json([{code:'AGENT_RUN_FAILED',message:String(e.message).slice(0,800)}])},finished_at=now() where id=${run.id}`.catch(()=>{});
