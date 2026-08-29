@@ -1,4 +1,8 @@
-V9.8.2 Runtime Compatibility Fix
+Launchpad36 AI V9.8.3 Living Intelligence Foundation
+
+See README_V9_8_3.md for migration order, environment variables, catalog review behavior, evidence policy, tenant boundaries, and Firecrawl monitor setup.
+
+V9.8.2 Runtime Compatibility Fix (preserved)
 
 Replace:
 api/portfolio.js

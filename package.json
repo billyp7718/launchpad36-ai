@@ -1,8 +1,12 @@
 {
   "name": "launchpad36-ai",
   "private": true,
-  "version": "9.2.0",
+  "version": "9.8.3",
   "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "for f in api/*.js; do node --check \"$f\" || exit 1; done"
+  },
   "dependencies": {
     "postgres": "^3.4.7"
   }
