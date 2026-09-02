@@ -10,6 +10,7 @@ import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonit
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
 import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
+import { normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 
 test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
@@ -79,7 +80,7 @@ test('immutable change history keeps processing state in a separate table',async
 
 test('system status reports the complete production readiness chain without exposing secrets',async()=>{
   const source=await readFile(new URL('../api/system-status.js',import.meta.url),'utf8');
-  for(const name of ['Database','Schema','Firecrawl','Monitoring','Evidence','Change Detection','Scheduled Refresh']){
+  for(const name of ['Database','Schema','Firecrawl','OpenAI Research','Buyer Enrichment','Monitoring','Evidence','Change Detection','Scheduled Refresh']){
     assert.match(source,new RegExp(`['\"]${name}['\"]`));
   }
   assert.match(source,/VERCEL_GIT_COMMIT_SHA/);
@@ -135,8 +136,32 @@ test('public website inputs accept domains without a URL scheme',()=>{
 
 test('account research joins product and buyer evidence to the selected organization',async()=>{
   const source=await readFile(new URL('../api/account-research.js',import.meta.url),'utf8');
-  for(const marker of ['organization_id','universalAcquire','normalizeOfferings','focusTokens','decision-makers','runLivingIntelligencePipeline','upsertBuyer'])assert.match(source,new RegExp(marker));
+  for(const marker of ['organization_id','universalAcquire','searchOpenAIBuyers','normalizeOfferings','focusTokens','decision-makers','runLivingIntelligencePipeline','upsertBuyer'])assert.match(source,new RegExp(marker));
   assert.match(source,/A product category is required/);assert.match(source,/discarded_irrelevant_count/);
+});
+
+test('OpenAI buyer research retains only source-backed exact-account candidates',()=>{
+  const valid={name:'Jane Merchant',title:'Senior Merchant, Consumer Electronics',account:'The Home Depot',category_scope:'Consumer electronics',source_url:'https://example.com/home-depot-buyer',source_title:'Trade interview',evidence_quote:'Jane Merchant leads consumer electronics buying.',evidence_date:'2026-08-01',confidence:86,verification_status:'REVIEW_REQUIRED',rationale:'Current role and category are explicit.'};
+  const payload={output:[
+    {type:'web_search_call',action:{sources:[{url:'https://example.com/home-depot-buyer',title:'Trade interview'}]}},
+    {type:'message',content:[{type:'output_text',text:JSON.stringify({status:'FOUND',search_summary:'One attributable candidate.',buyer_candidates:[valid,{...valid,name:'Invented Person',source_url:'https://invented.example/person'},{...valid,name:'Wrong Account',account:'Best Buy'}]})}]}
+  ]};
+  assert.match(responseOutputText(payload),/Jane Merchant/);
+  assert.deepEqual(responseWebSources(payload).map(x=>x.url),['https://example.com/home-depot-buyer']);
+  const result=normalizeOpenAIResearch(payload,{account:'Home Depot'});
+  assert.equal(result.status,'SUCCESS');assert.equal(result.people.length,1);assert.equal(result.people[0].name,'Jane Merchant');assert.equal(result.people[0].verification_status,'REVIEW_REQUIRED');
+});
+
+test('OpenAI buyer research fails closed when citations or structured JSON are missing',()=>{
+  const uncited={output_text:JSON.stringify({status:'FOUND',search_summary:'',buyer_candidates:[{name:'Jane Merchant',title:'Buyer',account:'Home Depot',category_scope:'Electronics',source_url:'https://invented.example',source_title:'Unknown',evidence_quote:'Buyer',evidence_date:'',confidence:90,verification_status:'REVIEW_REQUIRED',rationale:''}]})};
+  assert.equal(normalizeOpenAIResearch(uncited,{account:'Home Depot'}).people.length,0);
+  assert.equal(normalizeOpenAIResearch({output_text:'not-json'},{account:'Home Depot'}).status,'ERROR');
+});
+
+test('OpenAI research uses Responses web search and never exposes the API key',async()=>{
+  const source=await readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8');
+  assert.match(source,/api\.openai\.com\/v1\/responses/);assert.match(source,/type:'web_search'/);assert.match(source,/web_search_call\.action\.sources/);assert.match(source,/type:'json_schema'/);assert.match(source,/REVIEW_REQUIRED/);
+  assert.doesNotMatch(source,/OPENAI_API_KEY\s*[,}]/);
 });
 
 test('buyer and evidence interfaces are account-scoped and mobile-safe',async()=>{

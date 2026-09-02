@@ -9,9 +9,17 @@ function uniq(xs){return [...new Set(xs.filter(Boolean))]}
 function timeoutSignal(ms){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return {signal:c.signal,clear:()=>clearTimeout(t)}}
 async function jsonFetch(url,opts,ms=45000){const x=timeoutSignal(ms);try{const r=await fetch(url,{...opts,signal:x.signal});let body={};try{body=await r.json()}catch{}return {ok:r.ok,status:r.status,body}}catch(e){return {ok:false,status:0,body:{error:e.name==='AbortError'?'timeout':e.message}}}finally{x.clear()}}
 
+export async function firecrawlMap({domain,categories=[]}){
+  const key=process.env.FIRECRAWL_API_KEY;if(!key)return {provider:'firecrawl_map',status:'NOT_CONFIGURED',urls:[],attempts:[],error:'FIRECRAWL_API_KEY is not configured'};
+  const search=categories.slice(0,3).filter(Boolean).join(' '),r=await jsonFetch(`${FIRECRAWL_BASE}/map`,{method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},body:JSON.stringify({url:`https://${domain}`,search,sitemap:'include',includeSubdomains:true,ignoreQueryParameters:false,ignoreCache:false,limit:100,location:{country:'US',languages:['en-US']},timeout:30000})},40000),links=Array.isArray(r.body?.links)?r.body.links:[],urls=[];
+  for(const link of links){const url=typeof link==='string'?link:link?.url;if(url&&sameDomain(url,domain))urls.push(url)}
+  return {provider:'firecrawl_map',status:urls.length?'SUCCESS':r.ok?'NO_RESULTS':'ERROR',urls:uniq(urls).slice(0,20),attempts:[{operation:'map',search,http_status:r.status,ok:r.ok,error:r.body?.error||''}],error:r.body?.error||''};
+}
+
 export async function firecrawlDiscover({domain,organization,categories=[]}){
   const key=process.env.FIRECRAWL_API_KEY;
   if(!key)return {provider:'firecrawl',status:'NOT_CONFIGURED',urls:[],attempts:[],error:'FIRECRAWL_API_KEY is not configured'};
+  const mapped=await firecrawlMap({domain,categories});if(mapped.urls.length)return {provider:'firecrawl',status:'SUCCESS',urls:mapped.urls.slice(0,12),attempts:mapped.attempts,error:''};
   const topics=categories.length?categories.slice(0,3):['products','services','solutions'];
   const queries=uniq(topics.map(t=>`site:${domain} ${t}`)).slice(0,3);
   const urls=[],attempts=[];
@@ -24,7 +32,7 @@ export async function firecrawlDiscover({domain,organization,categories=[]}){
     const rows=r.body?.data?.web||r.body?.data||[];
     for(const row of Array.isArray(rows)?rows:[])if(sameDomain(row.url,domain))urls.push(row.url);
   }
-  return {provider:'firecrawl',status:urls.length?'SUCCESS':attempts.some(a=>a.ok)?'NO_RESULTS':'ERROR',urls:uniq(urls).slice(0,12),attempts,error:''};
+  return {provider:'firecrawl',status:urls.length?'SUCCESS':attempts.some(a=>a.ok)?'NO_RESULTS':'ERROR',urls:uniq(urls).slice(0,12),attempts:[...(mapped.attempts||[]),...attempts],error:''};
 }
 
 const OFFERING_SCHEMA={
