@@ -8,6 +8,7 @@ import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
 import { validateCommercialObservation, livingHash, refreshTier } from '../api/_living-intelligence.js';
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
+import { calculateMarketOpportunity } from '../api/market-opportunity.js';
 
 test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
@@ -142,4 +143,30 @@ test('monitoring targets persist a separate required category field',async()=>{
   assert.match(route,/Category is required for retailer assortment targets/);assert.match(route,/category_focus/);
   const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(ui,/id="monitorCategory"/);assert.match(ui,/category_focus:category/);assert.match(ui,/category_focus:focus/);
+});
+
+test('multi-product retail opportunity deduplicates portfolio overlap and preserves account drill-down',()=>{
+  const products=[
+    {id:'p1',name:'Mount A',brand_name:'Acme',category:'TV Mounts',categories:['TV Mounts'],variants:[{sku:'A',wholesale:100,msrp:180}]},
+    {id:'p2',name:'Mount B',brand_name:'Acme',category:'TV Mounts',categories:['TV Mounts'],variants:[{sku:'B',wholesale:200,msrp:350}]}
+  ];
+  const organizations=[{id:'r1',name:'Retail One',organization_type:'retailer',channel_codes:['ce'],categories:['TV Mounts'],footprint:2,confidence:90,verification_status:'VERIFIED'}];
+  const result=calculateMarketOpportunity({products,organizations,route:'retail',assumptions:{annual_units_per_location:10,distribution_probability:50,portfolio_overlap_discount:10}});
+  assert.equal(result.summary.selected_product_count,2);assert.equal(result.summary.target_account_count,1);
+  assert.equal(result.summary.base_manufacturer_revenue,2700);assert.equal(result.summary.low_manufacturer_revenue,1755);assert.equal(result.summary.high_manufacturer_revenue,3645);
+  assert.equal(result.account_opportunities[0].product_contributions.length,2);assert.equal(result.assumptions.provenance,'USER_PROVIDED');
+});
+
+test('direct B2B opportunity uses accounts rather than retail footprint',()=>{
+  const products=[{id:'p1',name:'Display',category:'Displays',variants:[{sku:'D1',wholesale:500,msrp:800}]}];
+  const organizations=[{id:'b1',name:'Enterprise One',organization_type:'enterprise',channel_codes:['corporate'],categories:['Displays'],footprint:100}];
+  const result=calculateMarketOpportunity({products,organizations,route:'direct_b2b',assumptions:{units_per_account:5,win_probability:20}});
+  assert.equal(result.summary.target_account_count,1);assert.equal(result.summary.base_manufacturer_revenue,500);assert.equal(result.account_opportunities[0].footprint,100);
+});
+
+test('market intelligence UI supports multiple products, channel models and SKU drill-down',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/class="moProduct" type="checkbox"/);assert.match(source,/Select All/);
+  for(const route of ['retail','direct_b2b','distributor_dealer','mixed'])assert.match(source,new RegExp(`value="${route}"`));
+  assert.match(source,/Low/);assert.match(source,/Base Manufacturer Revenue/);assert.match(source,/High/);assert.match(source,/View SKUs/);assert.match(source,/api\/market-opportunity/);
 });
