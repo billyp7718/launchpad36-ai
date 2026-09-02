@@ -147,6 +147,24 @@ test('buyer and evidence interfaces are account-scoped and mobile-safe',async()=
   assert.match(source,/font-size:16px/);assert.match(source,/min-height:44px/);assert.match(source,/-webkit-overflow-scrolling:touch/);
 });
 
+test('account research exposes progress and prevents duplicate submissions',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  for(const marker of ['progressTrack','researchProgress','researchElapsed','accountResearchRunning','Research Running…'])assert.match(source,new RegExp(marker));
+  assert.match(source,/button\.disabled=true/);assert.match(source,/clearInterval\(timer\)/);
+});
+
+test('account research parallelizes independent website calls',async()=>{
+  const acquisition=await readFile(new URL('../api/_acquisition.js',import.meta.url),'utf8');
+  const buyers=await readFile(new URL('../api/decision-makers.js',import.meta.url),'utf8');
+  assert.match(acquisition,/Promise\.all\(queries\.map/);assert.match(acquisition,/Promise\.all\(eligible\.map/);
+  assert.match(buyers,/Promise\.all\(seeds\.map/);
+});
+
+test('account evidence query qualifies joined columns to avoid ambiguous SQL',async()=>{
+  const source=await readFile(new URL('../api/living-intelligence-status.js',import.meta.url),'utf8');
+  assert.match(source,/latest\.source_url/);assert.match(source,/latest\.verification_status/);assert.match(source,/latest\.payload/);
+});
+
 test('category relevance gate rejects unrelated retailer products',()=>{
   const data={json:{offerings:[{name:'Samsung Electric Dryer',category:'Appliances'},{name:'Full Motion TV Wall Mount',category:'TV Mounts',price_text:'$99.00'}]}};
   const rows=normalizeOfferings(data,focusTokens('TV mounts'));

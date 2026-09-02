@@ -15,8 +15,11 @@ export async function firecrawlDiscover({domain,organization,categories=[]}){
   const topics=categories.length?categories.slice(0,3):['products','services','solutions'];
   const queries=uniq(topics.map(t=>`site:${domain} ${t}`)).slice(0,3);
   const urls=[],attempts=[];
-  for(const query of queries){
+  const results=await Promise.all(queries.map(async query=>{
     const r=await jsonFetch(`${FIRECRAWL_BASE}/search`,{method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},body:JSON.stringify({query,limit:8,sources:['web'],includeDomains:[domain],country:'US',timeout:30000})},40000);
+    return {query,r};
+  }));
+  for(const {query,r} of results){
     attempts.push({operation:'search',query,http_status:r.status,ok:r.ok,error:r.body?.error||''});
     const rows=r.body?.data?.web||r.body?.data||[];
     for(const row of Array.isArray(rows)?rows:[])if(sameDomain(row.url,domain))urls.push(row.url);
@@ -37,9 +40,12 @@ export async function firecrawlExtract({domain,urls=[]}){
   const key=process.env.FIRECRAWL_API_KEY;
   if(!key)return {provider:'firecrawl',status:'NOT_CONFIGURED',observations:[],attempts:[]};
   const observations=[],attempts=[];
-  for(const url of urls.slice(0,8)){
-    if(!sameDomain(url,domain))continue;
+  const eligible=urls.slice(0,8).filter(url=>sameDomain(url,domain));
+  const results=await Promise.all(eligible.map(async url=>{
     const r=await jsonFetch(`${FIRECRAWL_BASE}/scrape`,{method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},body:JSON.stringify({url,onlyMainContent:true,proxy:'auto',timeout:45000,formats:[{type:'json',schema:OFFERING_SCHEMA,prompt:'Extract only commercial offerings explicitly present on this page. Do not infer missing products, brands, prices, availability, or categories. evidence_quote must be a short exact supporting phrase from the page when available.'}]})},55000);
+    return {url,r};
+  }));
+  for(const {url,r} of results){
     attempts.push({operation:'scrape_extract',url,http_status:r.status,ok:r.ok,error:r.body?.error||''});
     const data=r.body?.data?.json||r.body?.data?.extract||r.body?.data||{};
     for(const o of (Array.isArray(data?.offerings)?data.offerings:[])){
