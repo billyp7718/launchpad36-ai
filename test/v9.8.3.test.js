@@ -8,7 +8,7 @@ import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
 import { validateCommercialObservation, livingHash, refreshTier } from '../api/_living-intelligence.js';
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
-import { calculateMarketOpportunity } from '../api/market-opportunity.js';
+import { calculateMarketOpportunity, categoryConcepts } from '../api/market-opportunity.js';
 
 test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
@@ -169,4 +169,15 @@ test('market intelligence UI supports multiple products, channel models and SKU 
   assert.match(source,/class="moProduct" type="checkbox"/);assert.match(source,/Select All/);
   for(const route of ['retail','direct_b2b','distributor_dealer','mixed'])assert.match(source,new RegExp(`value="${route}"`));
   assert.match(source,/Low/);assert.match(source,/Base Manufacturer Revenue/);assert.match(source,/High/);assert.match(source,/View SKUs/);assert.match(source,/api\/market-opportunity/);
+});
+
+test('broad account categories match related product families',()=>{
+  assert.ok(categoryConcepts(['Floorstanding Speakers']).includes('audio'));
+  const result=calculateMarketOpportunity({products:[{id:'p1',name:'Speaker',category:'Floorstanding Speakers',variants:[{sku:'S1',wholesale:500}]}],organizations:[{id:'r1',name:'Audio Retailer',organization_type:'retailer',categories:['Audio'],footprint:10}],route:'retail',assumptions:{annual_units_per_location:2,distribution_probability:50}});
+  assert.equal(result.summary.target_account_count,1);assert.equal(result.summary.base_manufacturer_revenue,5000);
+});
+
+test('account universe UI exposes Excel CSV import, manual entry and a template',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/Import Accounts/);assert.match(source,/Download Template/);assert.match(source,/Add Account/);assert.match(source,/api\/retail-universe-import/);assert.match(source,/launchpad36-account-import-template\.csv/);
 });

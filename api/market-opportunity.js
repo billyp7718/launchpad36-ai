@@ -7,7 +7,9 @@ const PARTNER_CHANNELS=new Set(['distribution','dealer']);
 const clean=x=>String(x??'').trim().toLowerCase();
 const money=x=>Math.round((Number(x)||0)*100)/100;
 const pct=(x,fallback)=>Math.min(1,Math.max(0,(Number.isFinite(Number(x))?Number(x):fallback)/100));
-const overlap=(a=[],b=[])=>{const set=new Set(a.map(clean).filter(Boolean));return b.filter(x=>set.has(clean(x))).length};
+const CATEGORY_CONCEPTS={audio:['audio','speaker','soundbar','amplifier','receiver','subwoofer','headphone','loudspeaker','home theater','home theatre'],mounts:['mount','tv mount','monitor mount','wall mount'],displays:['display','television','tv','monitor','projector'],furniture:['furniture','desk','standing desk','table','chair'],automotive:['automotive','car audio','vehicle'],technology:['technology','electronics','consumer electronics','smart home']};
+export function categoryConcepts(values=[]){const out=new Set();for(const value of values){const term=clean(value);if(!term)continue;out.add(term);for(const [concept,aliases] of Object.entries(CATEGORY_CONCEPTS))if(aliases.some(alias=>term.includes(alias)||alias.includes(term)))out.add(concept)}return [...out]}
+const overlap=(a=[],b=[])=>{const set=new Set(categoryConcepts(a));return categoryConcepts(b).reduce((n,x)=>n+(set.has(x)?1:0),0)};
 
 function routeEligible(org,route){
   if(route==='mixed')return true;
