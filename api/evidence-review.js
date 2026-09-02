@@ -3,6 +3,7 @@ import { requireAdmin } from './_auth.js';
 import { runLivingIntelligencePipeline } from './_living-intelligence.js';
 
 const numericId=value=>/^\d+$/.test(String(value||''))?Number(value):0;
+const cleanReason=value=>String(value||'Rejected during human category review').replace(/\s+/g,' ').trim().slice(0,300);
 
 export default async function handler(req,res){
   if(!requireAdmin(req,res))return;
@@ -14,7 +15,8 @@ export default async function handler(req,res){
     const offerings=Array.isArray(row.payload?.offerings)?row.payload.offerings:[];
     if(req.method==='GET')return res.status(200).json({evidence:{id:row.id,subject_type:row.subject_type,subject_key:row.subject_key,evidence_type:row.evidence_type,source_url:row.source_url,observed_at:row.observed_at,confidence:row.confidence,verification_status:row.verification_status,validation_notes:row.validation_notes,offerings}});
     if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
-    if(req.body?.action!=='approve')return res.status(400).json({error:'Supported action is approve'});
+    if(!['approve','reject'].includes(req.body?.action))return res.status(400).json({error:'Supported actions are approve and reject'});
+    if(req.body.action==='reject'){const rejected=await runLivingIntelligencePipeline({account_id:row.account_id,organization_id:row.organization_id,source_url:row.source_url,source_type:row.source_kind,domain:row.domain,subject_type:row.subject_type,subject_key:row.subject_key,evidence_type:row.evidence_type,payload:{...row.payload,rejection_reason:cleanReason(req.body?.reason)},observed_at:new Date().toISOString(),confidence:Number(row.confidence)||0,verification_status:'REJECTED',refresh_tier:row.payload?.refresh_tier||'weekly',acquired_by:'admin_human_rejection'});return res.status(200).json({rejected:true,evidence_id:rejected.evidence.id,verification_status:rejected.verification_status})}
     if(!offerings.length)return res.status(409).json({error:'Evidence has no structured products to approve'});
     const current=(await sql`select evidence_id from current_commercial_truth where subject_type=${row.subject_type} and subject_key=${row.subject_key} and content_hash=${row.content_hash} limit 1`)[0];
     if(current)return res.status(200).json({approved:true,already_verified:true,evidence_id:current.evidence_id});

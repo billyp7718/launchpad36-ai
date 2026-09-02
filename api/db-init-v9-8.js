@@ -153,6 +153,7 @@ create table if not exists monitor_targets (
 );
 alter table monitor_targets add column if not exists account_id uuid references accounts(id) on delete cascade;
 alter table monitor_targets add column if not exists organization_id uuid references retail_organizations(id) on delete cascade;
+alter table monitor_targets add column if not exists category_focus text not null default '';
 create index if not exists monitor_targets_due_idx on monitor_targets(state,next_check_at);
 
 create table if not exists monitor_webhook_events (

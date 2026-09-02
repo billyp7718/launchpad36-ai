@@ -53,6 +53,10 @@ export default async function handler(req, res) {
     `;
     const present = new Set(tableRows.map(row => row.table_name));
     const missing = REQUIRED_TABLES.filter(table => !present.has(table));
+    if (present.has('monitor_targets')) {
+      const columns = await sql`select column_name from information_schema.columns where table_schema='public' and table_name='monitor_targets'`;
+      if (!columns.some(row => row.column_name === 'category_focus')) missing.push('monitor_targets.category_focus');
+    }
     components.push(component(
       'Schema',
       missing.length ? 'FAILED' : 'WORKING',
