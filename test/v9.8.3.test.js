@@ -97,3 +97,10 @@ test('system status UI can create and execute the first monitoring target',async
   assert.match(source,/api\/living-intelligence-refresh/);
   assert.match(source,/Save & Run Live Scrape/);
 });
+
+test('evidence explorer exposes source, confidence, verification and change state',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/Evidence Explorer/);
+  assert.match(source,/api\/living-intelligence-status/);
+  for(const field of ['Confidence','Status','Changed','Open source'])assert.match(source,new RegExp(field));
+});
