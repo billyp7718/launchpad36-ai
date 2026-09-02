@@ -89,3 +89,11 @@ test('system status UI offers an authenticated repeatable schema repair',async()
   assert.match(source,/api\/db-init-v9-8/);
   assert.match(source,/Existing records will be preserved/);
 });
+
+test('system status UI can create and execute the first monitoring target',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/Add First Monitoring Target/);
+  assert.match(source,/api\/monitor-targets/);
+  assert.match(source,/api\/living-intelligence-refresh/);
+  assert.match(source,/Save & Run Live Scrape/);
+});
