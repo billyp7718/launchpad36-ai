@@ -9,6 +9,7 @@ import { validateCommercialObservation, livingHash, refreshTier } from '../api/_
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
 import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
+import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 
 test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
@@ -122,7 +123,28 @@ test('evidence review is human-approved and appends verified truth',async()=>{
   const apiSource=await readFile(new URL('../api/evidence-review.js',import.meta.url),'utf8');
   assert.match(apiSource,/requireAdmin/);assert.match(apiSource,/admin_human_review/);assert.match(apiSource,/verification_status:'VERIFIED'/);assert.match(apiSource,/runLivingIntelligencePipeline/);
   const uiSource=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  assert.match(uiSource,/View Products/);assert.match(uiSource,/Approve as Verified/);assert.match(uiSource,/Evidence quote/);
+  assert.match(uiSource,/Review Products/);assert.match(uiSource,/Approve as Verified/);assert.match(uiSource,/Evidence quote/);
+});
+
+test('public website inputs accept domains without a URL scheme',()=>{
+  assert.equal(normalizePublicUrl('bestbuy.com/site/audio'),'https://bestbuy.com/site/audio');
+  assert.equal(normalizePublicUrl('//example.com/path'),'https://example.com/path');
+  assert.equal(domainFromWebsite('www.example.com/products'),'example.com');
+  assert.equal(normalizePublicUrl('not a website'),'');
+});
+
+test('account research joins product and buyer evidence to the selected organization',async()=>{
+  const source=await readFile(new URL('../api/account-research.js',import.meta.url),'utf8');
+  for(const marker of ['organization_id','universalAcquire','normalizeOfferings','focusTokens','decision-makers','runLivingIntelligencePipeline','upsertBuyer'])assert.match(source,new RegExp(marker));
+  assert.match(source,/A product category is required/);assert.match(source,/discarded_irrelevant_count/);
+});
+
+test('buyer and evidence interfaces are account-scoped and mobile-safe',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/id="buyerAccount"/);assert.match(source,/api\/buyers\?organization_id=/);
+  assert.match(source,/id="evidenceAccount"/);assert.match(source,/api\/account-research/);
+  assert.match(source,/https:\/\/ is optional/);assert.match(source,/@media\(max-width:760px\)/);
+  assert.match(source,/font-size:16px/);assert.match(source,/min-height:44px/);assert.match(source,/-webkit-overflow-scrolling:touch/);
 });
 
 test('category relevance gate rejects unrelated retailer products',()=>{

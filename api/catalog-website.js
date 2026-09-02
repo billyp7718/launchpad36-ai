@@ -1,12 +1,7 @@
 import { resolveTenant } from './_tenant.js';
 import { db } from './_db.js';
+import { normalizePublicUrl } from './_url.js';
 
-function cleanUrl(v=''){
-  let value=String(v||'').trim(); if(!value)return '';
-  if(value.startsWith('//'))value=`https:${value}`;
-  else if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(value))value=`https://${value}`;
-  try{const u=new URL(value);if(!['http:','https:'].includes(u.protocol)||!u.hostname||!u.hostname.includes('.'))return '';u.hash='';return u.toString();}catch{return ''}
-}
 async function firecrawl(path,payload){
   const key=process.env.FIRECRAWL_API_KEY;if(!key)throw new Error('FIRECRAWL_API_KEY is not configured');
   const r=await fetch(`https://api.firecrawl.dev/v2/${path}`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${key}`},body:JSON.stringify(payload)});
@@ -28,7 +23,7 @@ export function normalizeFirecrawlSearch(payload){
 export default async function handler(req,res){
   const t=await resolveTenant(req,res);if(!t)return;
   if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
-  const rawWebsite=String(req.body?.website||'').trim(),website=cleanUrl(rawWebsite);
+  const rawWebsite=String(req.body?.website||'').trim(),website=normalizePublicUrl(rawWebsite);
   if(!website)return res.status(400).json({error:'A valid vendor website is required',code:'INVALID_VENDOR_WEBSITE',received:rawWebsite});
   try{
     const host=new URL(website).hostname.replace(/^www\./i,'');
