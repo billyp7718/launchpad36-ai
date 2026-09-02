@@ -76,6 +76,20 @@ export default async function handler(req, res) {
       firecrawlConfigured ? 'API key is present; a live scrape is still required' : 'FIRECRAWL_API_KEY is missing'
     ));
 
+    const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
+    components.push(component(
+      'OpenAI Research',
+      openaiConfigured ? 'CONFIGURED' : 'NOT_CONFIGURED',
+      openaiConfigured ? 'Responses API web research is available for account and buyer discovery' : 'OPENAI_API_KEY is missing'
+    ));
+
+    const apolloConfigured = Boolean(process.env.APOLLO_API_KEY);
+    components.push(component(
+      'Buyer Enrichment',
+      apolloConfigured ? 'CONFIGURED' : 'OPTIONAL',
+      apolloConfigured ? 'Optional Apollo account-domain buyer search is available' : 'Optional: add APOLLO_API_KEY for a second buyer-data source'
+    ));
+
     const targetCount = counts.monitor_targets ?? 0;
     let targetFailures = 0;
     let lastTargetCheck = null;
