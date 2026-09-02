@@ -7,6 +7,7 @@ import { validateCatalogRows } from '../api/catalog-import.js';
 import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
 import { validateCommercialObservation, livingHash, refreshTier } from '../api/_living-intelligence.js';
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
+import { normalizeOfferings } from '../api/living-intelligence-refresh.js';
 
 test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
@@ -103,4 +104,15 @@ test('evidence explorer exposes source, confidence, verification and change stat
   assert.match(source,/Evidence Explorer/);
   assert.match(source,/api\/living-intelligence-status/);
   for(const field of ['Confidence','Status','Changed','Open source'])assert.match(source,new RegExp(field));
+});
+
+test('structured retailer offerings are normalized without invented values',()=>{
+  const rows=normalizeOfferings({json:{offerings:[{name:'Premium TV Mount',brand:'Acme',price_text:'$199.99',availability:'In stock',category:'TV Mounts',evidence_quote:'Premium TV Mount $199.99'},{name:'Premium TV Mount',brand:'Acme',price_text:'$199.99'}]}});
+  assert.equal(rows.length,1);assert.equal(rows[0].price_numeric,199.99);assert.equal(rows[0].brand,'Acme');
+  assert.deepEqual(normalizeOfferings({markdown:'No structured products'}),[]);
+});
+
+test('evidence explorer supports forced structured product extraction',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/Re-extract Product Data/);assert.match(source,/force:true/);assert.match(source,/Structured Products/);
 });
