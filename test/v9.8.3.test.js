@@ -116,3 +116,10 @@ test('evidence explorer supports forced structured product extraction',async()=>
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/Re-extract Product Data/);assert.match(source,/force:true/);assert.match(source,/Structured Products/);
 });
+
+test('evidence review is human-approved and appends verified truth',async()=>{
+  const apiSource=await readFile(new URL('../api/evidence-review.js',import.meta.url),'utf8');
+  assert.match(apiSource,/requireAdmin/);assert.match(apiSource,/admin_human_review/);assert.match(apiSource,/verification_status:'VERIFIED'/);assert.match(apiSource,/runLivingIntelligencePipeline/);
+  const uiSource=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(uiSource,/View Products/);assert.match(uiSource,/Approve as Verified/);assert.match(uiSource,/Evidence quote/);
+});
