@@ -134,3 +134,12 @@ test('UI supports rejecting evidence and replacing a bad target',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/Reject Evidence/);assert.match(source,/Replace Monitoring Target/);assert.match(source,/replace_target_id:targetId/);assert.doesNotMatch(source,/replace_active:true/);assert.match(source,/discarded_irrelevant_count/);
 });
+
+test('monitoring targets persist a separate required category field',async()=>{
+  const migration=await readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8');
+  assert.match(migration,/category_focus text not null default/);
+  const route=await readFile(new URL('../api/monitor-targets.js',import.meta.url),'utf8');
+  assert.match(route,/Category is required for retailer assortment targets/);assert.match(route,/category_focus/);
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(ui,/id="monitorCategory"/);assert.match(ui,/category_focus:category/);assert.match(ui,/category_focus:focus/);
+});
