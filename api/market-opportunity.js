@@ -10,6 +10,18 @@ const pct=(x,fallback)=>Math.min(1,Math.max(0,(Number.isFinite(Number(x))?Number
 const CATEGORY_CONCEPTS={audio:['audio','speaker','soundbar','amplifier','receiver','subwoofer','headphone','loudspeaker','home theater','home theatre'],mounts:['mount','tv mount','monitor mount','wall mount'],displays:['display','television','tv','monitor','projector'],furniture:['furniture','desk','standing desk','table','chair'],automotive:['automotive','car audio','vehicle'],technology:['technology','electronics','consumer electronics','smart home']};
 export function categoryConcepts(values=[]){const out=new Set();for(const value of values){const term=clean(value);if(!term)continue;out.add(term);for(const [concept,aliases] of Object.entries(CATEGORY_CONCEPTS))if(aliases.some(alias=>term.includes(alias)||alias.includes(term)))out.add(concept)}return [...out]}
 const overlap=(a=[],b=[])=>{const set=new Set(categoryConcepts(a));return categoryConcepts(b).reduce((n,x)=>n+(set.has(x)?1:0),0)};
+const specificMatch=(a=[],b=[])=>a.some(left=>b.some(right=>{left=clean(left);right=clean(right);return left&&right&&(left===right||(left.length>4&&right.includes(left))||(right.length>4&&left.includes(right)))}));
+export function evaluateProductAccountFit(product={},org={}){
+  const productTerms=[product.name,product.product_family,product.category,...(product.categories||[])].filter(Boolean),accountTerms=org.categories||[];
+  if(!accountTerms.length)return {qualified:false,score:0,tier:'INSUFFICIENT_DATA',reason:'Account has no category or assortment profile'};
+  const pc=new Set(categoryConcepts(productTerms)),ac=new Set(categoryConcepts(accountTerms));
+  const furnitureOnly=ac.has('furniture')&&!ac.has('audio')&&!ac.has('technology')&&!ac.has('displays')&&!ac.has('mounts');
+  if(furnitureOnly&&(pc.has('audio')||pc.has('technology')||pc.has('displays')||pc.has('mounts')))return {qualified:false,score:0,tier:'INCOMPATIBLE_VERTICAL',reason:'Furniture-focused account has no relevant electronics assortment signal'};
+  const exact=specificMatch(productTerms,accountTerms),related=[...pc].filter(x=>ac.has(x)&&CATEGORY_CONCEPTS[x]).length;
+  if(exact)return {qualified:true,score:80,tier:'SPECIFIC_CATEGORY_FIT',reason:'Specific product and account categories align'};
+  if(related)return {qualified:true,score:55,tier:'RELATED_CATEGORY_FIT',reason:'Related category profile aligns; assortment verification is still required'};
+  return {qualified:false,score:0,tier:'NO_CATEGORY_FIT',reason:'No relevant category or assortment signal'};
+}
 
 function routeEligible(org,route){
   if(route==='mixed')return true;
@@ -25,31 +37,30 @@ export function calculateMarketOpportunity({products=[],organizations=[],route='
   const probability=pct(route==='retail'?assumptions.distribution_probability:assumptions.win_probability,25);
   const overlapDiscount=products.length>1?pct(assumptions.portfolio_overlap_discount,10):0;
   const lowMultiplier=Math.max(0,Number(assumptions.low_multiplier)||0.65),highMultiplier=Math.max(1,Number(assumptions.high_multiplier)||1.35);
-  const productCategories=[...new Set(products.flatMap(p=>[p.category,...(p.categories||[])].map(clean).filter(Boolean)))];
   const skus=products.flatMap(p=>(p.variants||[]).filter(v=>v.active!==false).map(v=>{
     const msrp=Math.max(0,Number(v.msrp)||0),explicitWholesale=Math.max(0,Number(v.wholesale)||0);
-    return {product_id:p.id,product_name:p.name,brand_name:p.brand_name||'',sku:v.sku||v.variant_name||'Unspecified SKU',msrp,wholesale:explicitWholesale||(msrp?money(msrp*.6):0),wholesale_source:explicitWholesale?'catalog_wholesale':msrp?'modeled_60_percent_of_msrp':'missing'};
+    return {product_id:p.id,product_name:p.name,product_family:p.product_family||'',product_category:p.category||'',product_categories:p.categories||[],brand_name:p.brand_name||'',sku:v.sku||v.variant_name||'Unspecified SKU',msrp,wholesale:explicitWholesale||(msrp?money(msrp*.6):0),wholesale_source:explicitWholesale?'catalog_wholesale':msrp?'modeled_60_percent_of_msrp':'missing'};
   })).filter(x=>x.wholesale>0);
   const candidates=organizations.filter(o=>routeEligible(o,route)).map(o=>{
-    const categoryMatches=overlap(productCategories,o.categories||[]),categoryKnown=(o.categories||[]).length>0;
+    const productFits=new Map(products.map(p=>[String(p.id),evaluateProductAccountFit(p,o)])),qualifiedSkus=skus.filter(s=>productFits.get(String(s.product_id))?.qualified);
     const scale=route==='retail'?Math.max(1,Number(o.footprint)||1):1;
-    const factor=1-overlapDiscount,contributions=skus.map(s=>{
+    const factor=1-overlapDiscount,contributions=qualifiedSkus.map(s=>{
       const base=money(scale*units*probability*s.wholesale*factor),retailValue=money(scale*units*probability*(s.msrp||s.wholesale)*factor);
-      return {...s,base_manufacturer_revenue:base,base_retail_value:retailValue};
+      const fit=productFits.get(String(s.product_id));return {...s,fit_score:fit.score,fit_tier:fit.tier,fit_reason:fit.reason,base_manufacturer_revenue:base,base_retail_value:retailValue};
     });
     const base=money(contributions.reduce((n,x)=>n+x.base_manufacturer_revenue,0)),retailValue=money(contributions.reduce((n,x)=>n+x.base_retail_value,0));
-    return {organization_id:o.id,name:o.name,domain:o.domain||'',organization_type:o.organization_type||'',channels:o.channel_codes||[],categories:o.categories||[],footprint:Number(o.footprint)||0,confidence:Number(o.confidence)||0,verification_status:o.verification_status||'UNKNOWN',category_match_count:categoryMatches,category_fit:categoryKnown?(categoryMatches?'MATCH':'NO_MATCH'):'UNKNOWN',low_manufacturer_revenue:money(base*lowMultiplier),base_manufacturer_revenue:base,high_manufacturer_revenue:money(base*highMultiplier),base_retail_value:retailValue,product_contributions:contributions};
-  }).filter(o=>o.category_fit!=='NO_MATCH').sort((a,b)=>b.base_manufacturer_revenue-a.base_manufacturer_revenue);
+    const bestFit=Math.max(0,...contributions.map(x=>x.fit_score));return {organization_id:o.id,name:o.name,domain:o.domain||'',organization_type:o.organization_type||'',channels:o.channel_codes||[],categories:o.categories||[],footprint:Number(o.footprint)||0,confidence:Number(o.confidence)||0,verification_status:o.verification_status||'UNKNOWN',fit_score:bestFit,fit_tier:contributions.find(x=>x.fit_score===bestFit)?.fit_tier||'NO_CATEGORY_FIT',fit_reason:contributions.find(x=>x.fit_score===bestFit)?.fit_reason||'No selected product fits this account',low_manufacturer_revenue:money(base*lowMultiplier),base_manufacturer_revenue:base,high_manufacturer_revenue:money(base*highMultiplier),base_retail_value:retailValue,product_contributions:contributions};
+  }).filter(o=>o.product_contributions.length>0).sort((a,b)=>b.fit_score-a.fit_score||b.base_manufacturer_revenue-a.base_manufacturer_revenue);
   const base=candidates.reduce((n,x)=>n+x.base_manufacturer_revenue,0),retailValue=candidates.reduce((n,x)=>n+x.base_retail_value,0);
   const categoryTotals={};
   for(const account of candidates)for(const item of account.product_contributions){const key=products.find(p=>p.id===item.product_id)?.category||'Uncategorized';categoryTotals[key]=(categoryTotals[key]||0)+item.base_manufacturer_revenue}
   const missingPrices=products.filter(p=>!(p.variants||[]).some(v=>Number(v.wholesale)>0||Number(v.msrp)>0)).map(p=>p.name);
   const fallbackPrices=skus.filter(x=>x.wholesale_source==='modeled_60_percent_of_msrp').length;
-  const knownCategory=candidates.filter(x=>x.category_fit==='MATCH').length;
+  const knownCategory=candidates.filter(x=>x.fit_score>=55).length;
   const warnings=['This is a modeled addressable opportunity, not verified market size or a revenue forecast.'];
   if(fallbackPrices)warnings.push(`${fallbackPrices} SKU price(s) use a modeled wholesale value equal to 60% of MSRP.`);
   if(missingPrices.length)warnings.push(`${missingPrices.length} selected product(s) were excluded because no MSRP or wholesale price is stored.`);
-  if(candidates.some(x=>x.category_fit==='UNKNOWN'))warnings.push('Accounts without category tags are included with UNKNOWN category fit.');
+  warnings.push('Account ranking reflects category and channel fit, not certainty that an account will purchase. Verified assortment evidence and sales outcomes should raise or lower confidence.');
   return {summary:{selected_product_count:products.length,priced_sku_count:skus.length,target_account_count:candidates.length,category_matched_account_count:knownCategory,low_manufacturer_revenue:money(base*lowMultiplier),base_manufacturer_revenue:money(base),high_manufacturer_revenue:money(base*highMultiplier),base_retail_value:money(retailValue),account_category_coverage:candidates.length?Math.round(knownCategory/candidates.length*100):0},assumptions:{route_to_market:route,annual_units_per_location:route==='retail'?units:null,units_per_account:route==='retail'?null:units,distribution_probability:route==='retail'?money(probability*100):null,win_probability:route==='retail'?null:money(probability*100),portfolio_overlap_discount:money(overlapDiscount*100),low_multiplier:lowMultiplier,high_multiplier:highMultiplier,provenance:'USER_PROVIDED'},account_opportunities:candidates,category_totals:Object.entries(categoryTotals).map(([category,value])=>({category,base_manufacturer_revenue:money(value)})).sort((a,b)=>b.base_manufacturer_revenue-a.base_manufacturer_revenue),warnings};
 }
 
