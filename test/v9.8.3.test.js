@@ -7,7 +7,7 @@ import { validateCatalogRows } from '../api/catalog-import.js';
 import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
 import { validateCommercialObservation, livingHash, refreshTier } from '../api/_living-intelligence.js';
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
-import { normalizeOfferings } from '../api/living-intelligence-refresh.js';
+import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
 
 test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
@@ -122,4 +122,15 @@ test('evidence review is human-approved and appends verified truth',async()=>{
   assert.match(apiSource,/requireAdmin/);assert.match(apiSource,/admin_human_review/);assert.match(apiSource,/verification_status:'VERIFIED'/);assert.match(apiSource,/runLivingIntelligencePipeline/);
   const uiSource=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(uiSource,/View Products/);assert.match(uiSource,/Approve as Verified/);assert.match(uiSource,/Evidence quote/);
+});
+
+test('category relevance gate rejects unrelated retailer products',()=>{
+  const data={json:{offerings:[{name:'Samsung Electric Dryer',category:'Appliances'},{name:'Full Motion TV Wall Mount',category:'TV Mounts',price_text:'$99.00'}]}};
+  const rows=normalizeOfferings(data,focusTokens('TV mounts'));
+  assert.equal(rows.length,1);assert.match(rows[0].name,/TV Wall Mount/);assert.deepEqual(focusTokens('', 'https://homedepot.com/tvmounts'),['tv','mount']);
+});
+
+test('UI supports rejecting evidence and replacing a bad target',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/Reject Evidence/);assert.match(source,/Replace Monitoring Target/);assert.match(source,/replace_target_id:targetId/);assert.doesNotMatch(source,/replace_active:true/);assert.match(source,/discarded_irrelevant_count/);
 });
