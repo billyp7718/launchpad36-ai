@@ -82,3 +82,10 @@ test('system status reports the complete production readiness chain without expo
   assert.match(source,/VERCEL_GIT_COMMIT_SHA/);
   assert.doesNotMatch(source,/FIRECRAWL_API_KEY\s*[,}]/);
 });
+
+test('system status UI offers an authenticated repeatable schema repair',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/Initialize Missing Schema/);
+  assert.match(source,/api\/db-init-v9-8/);
+  assert.match(source,/Existing records will be preserved/);
+});
