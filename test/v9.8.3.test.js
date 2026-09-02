@@ -73,3 +73,12 @@ test('immutable change history keeps processing state in a separate table',async
   assert.match(source,/create table if not exists intelligence_change_event_processing/);
   assert.match(source,/create trigger intelligence_change_events_immutable/);
 });
+
+test('system status reports the complete production readiness chain without exposing secrets',async()=>{
+  const source=await readFile(new URL('../api/system-status.js',import.meta.url),'utf8');
+  for(const name of ['Database','Schema','Firecrawl','Monitoring','Evidence','Change Detection','Scheduled Refresh']){
+    assert.match(source,new RegExp(`['\"]${name}['\"]`));
+  }
+  assert.match(source,/VERCEL_GIT_COMMIT_SHA/);
+  assert.doesNotMatch(source,/FIRECRAWL_API_KEY\s*[,}]/);
+});
