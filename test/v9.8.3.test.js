@@ -8,7 +8,7 @@ import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
 import { validateCommercialObservation, livingHash, refreshTier } from '../api/_living-intelligence.js';
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
-import { calculateMarketOpportunity, categoryConcepts } from '../api/market-opportunity.js';
+import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
 
 test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
@@ -180,4 +180,13 @@ test('broad account categories match related product families',()=>{
 test('account universe UI exposes Excel CSV import, manual entry and a template',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/Import Accounts/);assert.match(source,/Download Template/);assert.match(source,/Add Account/);assert.match(source,/api\/retail-universe-import/);assert.match(source,/launchpad36-account-import-template\.csv/);
+});
+
+test('product-account fit excludes incompatible and unprofiled retailers',()=>{
+  const earbuds={id:'p1',name:'Wireless Earbuds',category:'Wireless Audio',categories:['Headphones']};
+  assert.equal(evaluateProductAccountFit(earbuds,{name:'Ashley Furniture',categories:['Furniture','Home Furnishings']}).tier,'INCOMPATIBLE_VERTICAL');
+  assert.equal(evaluateProductAccountFit(earbuds,{name:'Unknown Retailer',categories:[]}).tier,'INSUFFICIENT_DATA');
+  assert.equal(evaluateProductAccountFit(earbuds,{name:'Electronics Retailer',categories:['Audio','Headphones']}).qualified,true);
+  const result=calculateMarketOpportunity({products:[{...earbuds,variants:[{sku:'E1',wholesale:50}]}],organizations:[{id:'a',name:'Ashley Furniture',organization_type:'retailer',categories:['Furniture','Home Furnishings'],footprint:100},{id:'e',name:'Electronics Retailer',organization_type:'retailer',categories:['Audio','Headphones'],footprint:10}],route:'retail',assumptions:{annual_units_per_location:10,distribution_probability:20}});
+  assert.deepEqual(result.account_opportunities.map(x=>x.name),['Electronics Retailer']);
 });
