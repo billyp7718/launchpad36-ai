@@ -10,6 +10,7 @@ const REQUIRED_TABLES = [
   'intelligence_change_events',
   'intelligence_change_event_processing',
   'monitor_targets',
+  'opportunity_workspaces',
   'refresh_runs'
 ];
 
@@ -90,16 +91,18 @@ export default async function handler(req, res) {
       apolloConfigured ? 'Optional Apollo account-domain buyer search is available' : 'Optional: add APOLLO_API_KEY for a second buyer-data source'
     ));
 
-    const targetCount = counts.monitor_targets ?? 0;
+    let targetCount = 0;
     let targetFailures = 0;
     let lastTargetCheck = null;
     if (present.has('monitor_targets')) {
       const targetHealth = await sql`
-        select
+        select count(*) filter (where state='active')::int as targets,
           count(*) filter (where coalesce(last_error, '') <> '')::int as failures,
           max(last_check_at) as last_check
         from monitor_targets
+        where state='active'
       `;
+      targetCount = targetHealth[0]?.targets ?? 0;
       targetFailures = targetHealth[0]?.failures ?? 0;
       lastTargetCheck = targetHealth[0]?.last_check ?? null;
     }
