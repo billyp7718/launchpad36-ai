@@ -13,6 +13,17 @@ import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 import { discoveredUrls } from '../api/_acquisition.js';
+import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
+
+test('retail distributor seed contains 50 unique, categorized, sourceable accounts',()=>{
+  assert.equal(RETAIL_DISTRIBUTORS.length,50);
+  assert.equal(new Set(RETAIL_DISTRIBUTORS.map(x=>x.name.toLowerCase())).size,50);
+  assert.equal(new Set(RETAIL_DISTRIBUTORS.map(x=>x.domain.toLowerCase())).size,50);
+  assert.ok(RETAIL_DISTRIBUTORS.every(x=>x.domain.includes('.')&&x.channels.includes('distribution')&&x.categories.length>=4));
+  assert.ok(RETAIL_DISTRIBUTORS.some(x=>x.channels.includes('specialty_av')));
+  assert.ok(RETAIL_DISTRIBUTORS.some(x=>x.channels.includes('automotive')));
+  assert.ok(RETAIL_DISTRIBUTORS.some(x=>x.channels.includes('office')));
+});
 
 test('account product discovery accepts nested Firecrawl result shapes',()=>{
   const payload={data:{web:{results:[{url:'https://academy.com/p/bluetooth-speaker'}]}},result:{items:[{metadata:{sourceURL:'https://academy.com/p/headphones'}}]}};
