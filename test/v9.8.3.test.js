@@ -178,6 +178,16 @@ test('account research exposes progress and prevents duplicate submissions',asyn
   assert.match(source,/button\.disabled=true/);assert.match(source,/clearInterval\(timer\)/);
 });
 
+test('saved buyer research is visible and reusable from its account',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  for(const marker of ['buyer_count','Saved buyer data','loadSavedAccountBuyers','Refresh Account Research','selectedBuyerOrgId','Buyer data saved to account'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/api\/buyers\?organization_id=\$\{encodeURIComponent\(orgId\)\}/);
+  const universe=await readFile(new URL('../api/account-universe.js',import.meta.url),'utf8');
+  assert.match(universe,/count\(\*\)::int/);assert.match(universe,/buyer_data_updated_at/);
+  const database=await readFile(new URL('../api/_db.js',import.meta.url),'utf8');
+  assert.match(database,/on conflict \(account_id, lower\(name\), lower\(title\)\) do update/);
+});
+
 test('account research parallelizes independent website calls',async()=>{
   const acquisition=await readFile(new URL('../api/_acquisition.js',import.meta.url),'utf8');
   const buyers=await readFile(new URL('../api/decision-makers.js',import.meta.url),'utf8');
