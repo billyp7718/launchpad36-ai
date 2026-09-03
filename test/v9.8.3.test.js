@@ -12,6 +12,12 @@ import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
+import { discoveredUrls } from '../api/_acquisition.js';
+
+test('account product discovery accepts nested Firecrawl result shapes',()=>{
+  const payload={data:{web:{results:[{url:'https://academy.com/p/bluetooth-speaker'}]}},result:{items:[{metadata:{sourceURL:'https://academy.com/p/headphones'}}]}};
+  assert.deepEqual(discoveredUrls(payload),['https://academy.com/p/bluetooth-speaker','https://academy.com/p/headphones']);
+});
 
 test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
