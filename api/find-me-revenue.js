@@ -13,7 +13,7 @@ export default async function handler(req,res){
     if(!product)return res.status(404).json({error:'Product not found for this tenant'});
     const [organizations,evidenceRows,buyerRows]=await Promise.all([
       sql`select * from retail_organizations where active=true limit 5000`,
-      sql`select organization_id,payload,source_url,observed_at,last_verified_at,confidence,verification_status from commercial_evidence where organization_id is not null and subject_type='retailer_assortment' and verification_status in ('VERIFIED','REVIEW_REQUIRED') and observed_at>=now()-interval '365 days' order by observed_at desc limit 10000`,
+      sql`select ce.organization_id,ce.payload,es.source_url,ce.observed_at,ce.last_verified_at,ce.confidence,ce.verification_status from commercial_evidence ce join evidence_sources es on es.id=ce.source_id where ce.organization_id is not null and ce.subject_type='retailer_assortment' and ce.verification_status in ('VERIFIED','REVIEW_REQUIRED') and ce.observed_at>=now()-interval '365 days' order by ce.observed_at desc limit 10000`,
       sql`select a.organization_id,b.id,b.name,b.title,b.email,b.phone,b.linkedin,b.category,b.source_url,b.confidence,b.verification_status,b.status,b.updated_at from accounts a join buyers b on b.account_id=a.id where a.organization_id is not null order by b.confidence desc,b.updated_at desc limit 10000`
     ]);
     const evidence=evidenceProfiles(evidenceRows),buyers=buyerProfiles(buyerRows),limit=Math.min(Number(req.body?.limit)||100,250);
