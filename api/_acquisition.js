@@ -6,6 +6,18 @@ export function safeDomain(x){
 }
 export function sameDomain(url,domain){try{const h=new URL(url).hostname.replace(/^www\./,'').toLowerCase();return h===domain||h.endsWith('.'+domain)}catch{return false}}
 function uniq(xs){return [...new Set(xs.filter(Boolean))]}
+export function discoveredUrls(payload){
+  const found=[],seen=new Set();
+  function visit(value,depth=0){
+    if(value==null||depth>8)return;
+    if(Array.isArray(value)){for(const item of value)visit(item,depth+1);return}
+    if(typeof value!=='object'||seen.has(value))return;seen.add(value);
+    const url=value.url||value.link||value.href||value.metadata?.sourceURL||value.metadata?.url;
+    if(typeof url==='string'&&url.trim())found.push(url.trim());
+    for(const key of ['data','web','results','items','pages','documents','searchResults','result'])if(value[key]!==undefined)visit(value[key],depth+1);
+  }
+  visit(payload);return uniq(found);
+}
 function timeoutSignal(ms){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return {signal:c.signal,clear:()=>clearTimeout(t)}}
 async function jsonFetch(url,opts,ms=45000){const x=timeoutSignal(ms);try{const r=await fetch(url,{...opts,signal:x.signal});let body={};try{body=await r.json()}catch{}return {ok:r.ok,status:r.status,body}}catch(e){return {ok:false,status:0,body:{error:e.name==='AbortError'?'timeout':e.message}}}finally{x.clear()}}
 
@@ -16,10 +28,10 @@ export async function firecrawlMap({domain,categories=[]}){
   return {provider:'firecrawl_map',status:urls.length?'SUCCESS':r.ok?'NO_RESULTS':'ERROR',urls:uniq(urls).slice(0,20),attempts:[{operation:'map',search,http_status:r.status,ok:r.ok,error:r.body?.error||''}],error:r.body?.error||''};
 }
 
-export async function firecrawlDiscover({domain,organization,categories=[]}){
+export async function firecrawlDiscover({domain,organization,categories=[],skipMap=false}){
   const key=process.env.FIRECRAWL_API_KEY;
   if(!key)return {provider:'firecrawl',status:'NOT_CONFIGURED',urls:[],attempts:[],error:'FIRECRAWL_API_KEY is not configured'};
-  const mapped=await firecrawlMap({domain,categories});if(mapped.urls.length)return {provider:'firecrawl',status:'SUCCESS',urls:mapped.urls.slice(0,12),attempts:mapped.attempts,error:''};
+  const mapped=skipMap?{status:'SKIPPED',urls:[],attempts:[]}:await firecrawlMap({domain,categories});if(mapped.urls.length)return {provider:'firecrawl',status:'SUCCESS',urls:mapped.urls.slice(0,12),attempts:mapped.attempts,error:'',strategy:'map'};
   const topics=categories.length?categories.slice(0,3):['products','services','solutions'];
   const queries=uniq(topics.map(t=>`site:${domain} ${t}`)).slice(0,3);
   const urls=[],attempts=[];
@@ -29,10 +41,14 @@ export async function firecrawlDiscover({domain,organization,categories=[]}){
   }));
   for(const {query,r} of results){
     attempts.push({operation:'search',query,http_status:r.status,ok:r.ok,error:r.body?.error||''});
-    const rows=r.body?.data?.web||r.body?.data||[];
-    for(const row of Array.isArray(rows)?rows:[])if(sameDomain(row.url,domain))urls.push(row.url);
+    for(const url of discoveredUrls(r.body))if(sameDomain(url,domain))urls.push(url);
   }
-  return {provider:'firecrawl',status:urls.length?'SUCCESS':attempts.some(a=>a.ok)?'NO_RESULTS':'ERROR',urls:uniq(urls).slice(0,12),attempts:[...(mapped.attempts||[]),...attempts],error:''};
+  if(!urls.length&&topics[0]){
+    const term=encodeURIComponent(topics[0]);
+    urls.push(`https://${domain}/search?q=${term}`,`https://${domain}/search?searchTerm=${term}`);
+    attempts.push({operation:'site_search_fallback',query:topics[0],ok:true,error:''});
+  }
+  return {provider:'firecrawl',status:urls.length?'SUCCESS':attempts.some(a=>a.ok)?'NO_RESULTS':'ERROR',urls:uniq(urls).slice(0,12),attempts:[...(mapped.attempts||[]),...attempts],error:'',strategy:urls.length?'web_search_or_site_search':'none'};
 }
 
 const OFFERING_SCHEMA={
@@ -44,13 +60,13 @@ const OFFERING_SCHEMA={
   },required:['offerings']
 };
 
-export async function firecrawlExtract({domain,urls=[]}){
+export async function firecrawlExtract({domain,urls=[],categories=[]}){
   const key=process.env.FIRECRAWL_API_KEY;
   if(!key)return {provider:'firecrawl',status:'NOT_CONFIGURED',observations:[],attempts:[]};
   const observations=[],attempts=[];
   const eligible=urls.slice(0,8).filter(url=>sameDomain(url,domain));
   const results=await Promise.all(eligible.map(async url=>{
-    const r=await jsonFetch(`${FIRECRAWL_BASE}/scrape`,{method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},body:JSON.stringify({url,onlyMainContent:true,proxy:'auto',timeout:45000,formats:[{type:'json',schema:OFFERING_SCHEMA,prompt:'Extract only commercial offerings explicitly present on this page. Do not infer missing products, brands, prices, availability, or categories. evidence_quote must be a short exact supporting phrase from the page when available.'}]})},55000);
+    const focus=categories.filter(Boolean).slice(0,3).join(', '),r=await jsonFetch(`${FIRECRAWL_BASE}/scrape`,{method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},body:JSON.stringify({url,onlyMainContent:true,proxy:'auto',timeout:45000,formats:[{type:'json',schema:OFFERING_SCHEMA,prompt:`Extract only commercial products explicitly present on this page that match: ${focus||'the requested product category'}. Include each visible product name, brand, price, availability, category, and a short exact supporting phrase when available. Do not infer missing products or attributes.`}]})},55000);
     return {url,r};
   }));
   for(const {url,r} of results){
@@ -73,7 +89,12 @@ export async function firecrawlExtract({domain,urls=[]}){
 export async function universalAcquire(input){
   const domain=safeDomain(input.domain); if(!domain)return {status:'ERROR',observations:[],providers:[],error:'Valid organization domain required'};
   const discovery=await firecrawlDiscover({...input,domain});
-  const extraction=discovery.urls.length?await firecrawlExtract({domain,urls:discovery.urls}):{provider:'firecrawl',status:discovery.status,observations:[],attempts:[]};
+  let extraction=discovery.urls.length?await firecrawlExtract({domain,urls:discovery.urls,categories:input.categories||[]}):{provider:'firecrawl',status:discovery.status,observations:[],attempts:[]};
+  let fallback=null;
+  if(!extraction.observations.length&&discovery.strategy==='map'){
+    fallback=await firecrawlDiscover({...input,domain,skipMap:true});
+    if(fallback.urls.length)extraction=await firecrawlExtract({domain,urls:fallback.urls,categories:input.categories||[]});
+  }
   const status=extraction.observations.length?'SUCCESS':discovery.status==='NOT_CONFIGURED'?'NOT_CONFIGURED':(discovery.status==='ERROR'&&extraction.status==='ERROR')?'ERROR':'NO_RESULTS';
-  return {status,observations:extraction.observations||[],providers:[{name:'firecrawl',discovery_status:discovery.status,extraction_status:extraction.status,attempts:[...(discovery.attempts||[]),...(extraction.attempts||[])]}],failure_is_negative_evidence:false,interpretation:status==='SUCCESS'?'Attributable organization-page observations were acquired and normalized.':status==='NOT_CONFIGURED'?'Universal discovery provider is not configured. No commercial conclusion may be drawn.':'No attributable offering observations were acquired. This is UNKNOWN, not evidence of absence.'};
+  return {status,observations:extraction.observations||[],providers:[{name:'firecrawl',discovery_status:fallback?.status||discovery.status,extraction_status:extraction.status,attempts:[...(discovery.attempts||[]),...(fallback?.attempts||[]),...(extraction.attempts||[])]}],failure_is_negative_evidence:false,interpretation:status==='SUCCESS'?'Attributable organization-page observations were acquired and normalized.':status==='NOT_CONFIGURED'?'Universal discovery provider is not configured. No commercial conclusion may be drawn.':'No attributable offering observations were acquired. This is UNKNOWN, not evidence of absence.'};
 }
