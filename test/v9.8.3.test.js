@@ -14,6 +14,12 @@ import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
+import { reportRecipients } from '../api/market-report-email.js';
+
+test('market report email normalizes and limits recipient addresses',()=>{
+  assert.deepEqual(reportRecipients('A@Example.com; b@example.com, a@example.com'),['a@example.com','b@example.com']);
+  assert.equal(reportRecipients(Array.from({length:20},(_,i)=>`x${i}@example.com`).join(',')).length,10);
+});
 
 test('retail distributor seed contains 50 unique, categorized, sourceable accounts',()=>{
   assert.equal(RETAIL_DISTRIBUTORS.length,50);
