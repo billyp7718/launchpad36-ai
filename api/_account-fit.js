@@ -11,6 +11,17 @@ const CATEGORY_CONCEPTS={
   commercial_av:['commercial av','pro av','digital signage','conference room','collaboration']
 };
 
+const CONCEPT_CHANNELS={
+  audio:['ce','consumer_electronics','ecommerce','mass','club','department','specialty_av','dealer','distribution'],
+  mounts:['ce','consumer_electronics','ecommerce','mass','club','home_improvement','specialty_av','office','dealer','distribution','integrator'],
+  displays:['ce','consumer_electronics','ecommerce','mass','club','department','specialty_av','office','dealer','distribution','integrator'],
+  furniture:['furniture','office','ecommerce','mass','club','home_improvement','dealer','distribution'],
+  automotive:['automotive','ecommerce','mass','club','dealer','distribution'],
+  technology:['ce','consumer_electronics','ecommerce','mass','club','department','office','dealer','distribution'],
+  appliances:['appliances','ecommerce','mass','club','department','home_improvement','dealer','distribution'],
+  commercial_av:['specialty_av','office','dealer','distribution','integrator','enterprise','corporate','hospitality','healthcare','education','government']
+};
+
 export function categoryConcepts(values=[]){
   const out=new Set();
   for(const value of values){
@@ -30,13 +41,27 @@ export function evidenceProfiles(rows=[]){
   for(const row of rows){
     const key=String(row.organization_id||'');if(!key)continue;
     const offerings=Array.isArray(row.payload?.offerings)?row.payload.offerings:[];
-    const prior=profiles.get(key)||{verified:true,evidence_count:0,terms:[],sources:[],latest_verified_at:null};
+    const status=clean(row.verification_status||'REVIEW_REQUIRED'),verified=status==='verified';
+    const prior=profiles.get(key)||{verified:false,evidence_count:0,verified_terms:[],observed_terms:[],sources:[],latest_verified_at:null,latest_observed_at:null};
     prior.evidence_count+=1;
-    prior.terms.push(...offerings.flatMap(item=>[item.name,item.brand,item.category]).filter(Boolean));
+    const terms=offerings.flatMap(item=>[item.name,item.brand,item.category]).filter(Boolean);
+    prior.observed_terms.push(...terms);if(verified){prior.verified=true;prior.verified_terms.push(...terms)}
     if(row.source_url)prior.sources.push(row.source_url);
     const observed=row.last_verified_at||row.observed_at;
-    if(observed&&(!prior.latest_verified_at||new Date(observed)>new Date(prior.latest_verified_at)))prior.latest_verified_at=observed;
+    if(verified&&observed&&(!prior.latest_verified_at||new Date(observed)>new Date(prior.latest_verified_at)))prior.latest_verified_at=observed;
+    if(row.observed_at&&(!prior.latest_observed_at||new Date(row.observed_at)>new Date(prior.latest_observed_at)))prior.latest_observed_at=row.observed_at;
     profiles.set(key,prior);
+  }
+  return profiles;
+}
+
+export function buyerProfiles(rows=[]){
+  const profiles=new Map();
+  for(const row of rows){
+    const key=String(row.organization_id||'');if(!key)continue;
+    const current=profiles.get(key)||[];
+    if(current.length<5)current.push({id:row.id,name:row.name,title:row.title,email:row.email||'',phone:row.phone||'',linkedin:row.linkedin||'',category:row.category||'',source_url:row.source_url||'',confidence:Number(row.confidence)||0,verification_status:row.verification_status||row.status||'UNKNOWN',updated_at:row.updated_at||null});
+    profiles.set(key,current);
   }
   return profiles;
 }
@@ -47,12 +72,16 @@ export function evaluateProductAccountFit(product={},org={},evidenceProfile=null
   const productConcepts=new Set(categoryConcepts(productTerms)),accountConcepts=new Set(categoryConcepts(accountTerms));
   const channelOverlap=(product.channels||[]).map(clean).filter(Boolean).filter(x=>(org.channel_codes||[]).map(clean).includes(x));
   const exact=specificMatch(productTerms,accountTerms),related=[...productConcepts].filter(x=>accountConcepts.has(x)&&CATEGORY_CONCEPTS[x]).length;
-  const verifiedTerms=evidenceProfile?.terms||[],verifiedExact=specificMatch(productTerms,verifiedTerms),verifiedConcepts=new Set(categoryConcepts(verifiedTerms)),verifiedRelated=[...productConcepts].filter(x=>verifiedConcepts.has(x)&&CATEGORY_CONCEPTS[x]).length;
+  const verifiedTerms=evidenceProfile?.verified_terms||[],observedTerms=evidenceProfile?.observed_terms||[],verifiedExact=specificMatch(productTerms,verifiedTerms),verifiedConcepts=new Set(categoryConcepts(verifiedTerms)),verifiedRelated=[...productConcepts].filter(x=>verifiedConcepts.has(x)&&CATEGORY_CONCEPTS[x]).length;
+  const observedExact=specificMatch(productTerms,observedTerms),observedConcepts=new Set(categoryConcepts(observedTerms)),observedRelated=[...productConcepts].filter(x=>observedConcepts.has(x)&&CATEGORY_CONCEPTS[x]).length;
+  const accountChannels=(org.channel_codes||[]).map(clean),suitableChannels=[...new Set([...productConcepts].flatMap(concept=>CONCEPT_CHANNELS[concept]||[]))],routeMatches=accountChannels.filter(channel=>suitableChannels.includes(channel));
   const furnitureOnly=accountConcepts.has('furniture')&&!accountConcepts.has('audio')&&!accountConcepts.has('technology')&&!accountConcepts.has('displays')&&!accountConcepts.has('mounts');
   if(furnitureOnly&&(productConcepts.has('audio')||productConcepts.has('technology')||productConcepts.has('displays')||productConcepts.has('mounts')))return {qualified:false,score:0,tier:'INCOMPATIBLE_VERTICAL',reason:'Furniture-focused account has no relevant electronics assortment signal',evidence_status:'INCOMPATIBLE',evidence_count:evidenceProfile?.evidence_count||0};
   if(evidenceProfile?.verified&&(verifiedExact||verifiedRelated))return {qualified:true,score:verifiedExact?95:85,tier:'VERIFIED_ASSORTMENT_FIT',reason:'Verified assortment evidence confirms this product category',evidence_status:'VERIFIED',evidence_count:evidenceProfile.evidence_count||0,evidence_sources:evidenceProfile.sources||[],last_verified_at:evidenceProfile.latest_verified_at};
+  if(observedExact||observedRelated)return {qualified:true,score:observedExact?78:68,tier:'OBSERVED_ASSORTMENT_FIT',reason:'Recent account product evidence matches this category; human verification is still required',evidence_status:'OBSERVED_REVIEW_REQUIRED',evidence_count:evidenceProfile?.evidence_count||0,evidence_sources:evidenceProfile?.sources||[],last_observed_at:evidenceProfile?.latest_observed_at||null};
   if(exact)return {qualified:true,score:80,tier:'SPECIFIC_CATEGORY_FIT',reason:'Specific product and account categories align; assortment verification remains required',evidence_status:'PROFILE_ONLY',evidence_count:evidenceProfile?.evidence_count||0};
   if(related)return {qualified:true,score:55,tier:'RELATED_CATEGORY_FIT',reason:'Related category profile aligns; assortment verification is required',evidence_status:'PROFILE_ONLY',evidence_count:evidenceProfile?.evidence_count||0};
+  if(routeMatches.length)return {qualified:true,score:42,tier:'CATEGORY_CHANNEL_CANDIDATE',reason:`${routeMatches.join(', ')} is a viable route for this product category; confirm the account assortment before outreach`,evidence_status:'RESEARCH_REQUIRED',evidence_count:evidenceProfile?.evidence_count||0};
   if(channelOverlap.length)return {qualified:false,score:0,tier:'CHANNEL_ONLY',reason:'Channel alignment alone is insufficient without category or assortment fit',evidence_status:'INSUFFICIENT',evidence_count:evidenceProfile?.evidence_count||0};
   return {qualified:false,score:0,tier:accountTerms.length?'NO_CATEGORY_FIT':'INSUFFICIENT_DATA',reason:accountTerms.length?'No relevant category or verified assortment signal':'Account has no category or verified assortment profile',evidence_status:evidenceProfile?.verified?'VERIFIED_NO_MATCH':'INSUFFICIENT',evidence_count:evidenceProfile?.evidence_count||0};
 }

@@ -9,7 +9,7 @@ import { validateCommercialObservation, livingHash, refreshTier } from '../api/_
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
 import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
-import { evidenceProfiles } from '../api/_account-fit.js';
+import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 
@@ -287,7 +287,7 @@ test('verified assortment evidence is separated from modeled profile fit dollars
     {id:'verified',name:'Verified Retailer',organization_type:'retailer',categories:['Home Electronics'],footprint:10},
     {id:'profile',name:'Profile Retailer',organization_type:'retailer',categories:['TV Mounts'],footprint:10}
   ];
-  const profiles=evidenceProfiles([{organization_id:'verified',payload:{offerings:[{name:'Full Motion TV Wall Mount',category:'TV Mounts'}]},source_url:'https://example.com/mounts',last_verified_at:'2026-09-03T00:00:00Z'}]);
+  const profiles=evidenceProfiles([{organization_id:'verified',payload:{offerings:[{name:'Full Motion TV Wall Mount',category:'TV Mounts'}]},source_url:'https://example.com/mounts',last_verified_at:'2026-09-03T00:00:00Z',verification_status:'VERIFIED'}]);
   const result=calculateMarketOpportunity({products,organizations,route:'retail',assumptions:{annual_units_per_location:10,distribution_probability:20},evidenceByOrganization:profiles});
   assert.equal(result.summary.target_account_count,2);assert.equal(result.summary.verified_account_count,1);assert.equal(result.summary.account_category_coverage,50);
   assert.equal(result.summary.base_manufacturer_revenue,4000);assert.equal(result.summary.evidence_backed_manufacturer_revenue,2000);
@@ -305,4 +305,29 @@ test('opportunity workspaces persist tenant-scoped scenarios and gate approval o
   assert.match(apiSource,/where ow\.manufacturer_id=\$\{tenant\.tenant_id\}/);
   assert.match(apiSource,/Verify relevant account assortment evidence before approving/);
   for(const marker of ['Opportunity Workspace','loadOpportunityWorkspaces','Approve Opportunity','Evidence-Backed','Export CSV'])assert.match(ui,new RegExp(marker));
+});
+
+test('review-required product evidence and category-specific channels expand candidates transparently',()=>{
+  const mount={id:'m1',name:'Full Motion TV Mount',category:'TV Mounts',categories:['TV Mounts'],channels:['home_improvement']};
+  const observed=evidenceProfiles([{organization_id:'observed',payload:{offerings:[{name:'Tilting Television Wall Mount',category:'Mounts'}]},source_url:'https://example.com/mounts',observed_at:'2026-09-03T00:00:00Z',verification_status:'REVIEW_REQUIRED'}]);
+  const observedFit=evaluateProductAccountFit(mount,{id:'observed',categories:[],channel_codes:[]},observed.get('observed'));
+  assert.equal(observedFit.qualified,true);assert.equal(observedFit.tier,'OBSERVED_ASSORTMENT_FIT');assert.equal(observedFit.evidence_status,'OBSERVED_REVIEW_REQUIRED');
+  const channelFit=evaluateProductAccountFit(mount,{id:'candidate',categories:['Home'],channel_codes:['home_improvement']});
+  assert.equal(channelFit.qualified,true);assert.equal(channelFit.tier,'CATEGORY_CHANNEL_CANDIDATE');assert.equal(channelFit.evidence_status,'RESEARCH_REQUIRED');
+  const wrongFit=evaluateProductAccountFit(mount,{id:'wrong',categories:['Furniture'],channel_codes:['furniture'],footprint:5000,confidence:100});
+  assert.equal(wrongFit.qualified,false);assert.equal(wrongFit.tier,'INCOMPATIBLE_VERTICAL');
+});
+
+test('saved buyer contact details are joined to account results without changing buyer research',async()=>{
+  const profiles=buyerProfiles([{organization_id:'o1',id:'b1',name:'Jane Buyer',title:'Electronics Merchant',email:'jane@example.com',phone:'555-0100',linkedin:'https://linkedin.com/in/jane',confidence:80}]);
+  assert.equal(profiles.get('o1')[0].email,'jane@example.com');assert.equal(profiles.get('o1')[0].phone,'555-0100');
+  const [findRevenue,market,ui]=await Promise.all([readFile(new URL('../api/find-me-revenue.js',import.meta.url),'utf8'),readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  for(const source of [findRevenue,market]){assert.match(source,/b\.email/);assert.match(source,/b\.phone/);assert.match(source,/b\.linkedin/);assert.match(source,/buyerProfiles/)}
+  assert.match(ui,/Buyer Contact/);assert.match(ui,/buyerContactSummary/);assert.match(ui,/mailto:/);assert.match(ui,/tel:/);
+  const buyerTool=await readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8');assert.match(buyerTool,/api\.openai\.com\/v1\/responses/);
+});
+
+test('market intelligence returns calculated results when workspace schema is missing',async()=>{
+  const source=await readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8');
+  assert.match(source,/error\?\.code==='42P01'/);assert.match(source,/persistence_status='SCHEMA_REQUIRED'/);assert.match(source,/scenario was calculated, but workspaces were not saved/);
 });
