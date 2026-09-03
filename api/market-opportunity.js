@@ -82,6 +82,7 @@ export default async function handler(req,res){
     const result=calculateMarketOpportunity({products:hydrated,organizations,route,assumptions:req.body?.assumptions||{},evidenceByOrganization:evidenceProfiles(evidenceRows),buyersByOrganization:buyerProfiles(buyerRows)});
     let workspaces=[],persistence_status='SAVED';try{workspaces=await persistWorkspaces(sql,{manufacturerId:tenant.tenant_id,productIds,route,result})}catch(error){if(error?.code==='42P01'){persistence_status='SCHEMA_REQUIRED';result.warnings.push('The scenario was calculated, but workspaces were not saved. Open System Status and initialize the missing schema.')}else throw error}
     console.log('[market-opportunity] completed',{products:productIds.length,route,accounts:result.summary.target_account_count,verified:result.summary.verified_account_count,with_buyers:result.account_opportunities.filter(x=>x.buyer_count>0).length,persistence_status});
-    return res.status(200).json({version:'9.8.3',model:'MODELED_ADDRESSABLE_OPPORTUNITY',...result,workspaces,persistence_status});
+    const selected_products=hydrated.map(p=>({id:p.id,brand_name:p.brand_name||'',name:p.name,product_family:p.product_family||'',category:p.category||'',categories:p.categories||[],skus:(p.variants||[]).map(v=>({sku:v.sku||v.variant_name||'',msrp:Number(v.msrp)||0,wholesale:Number(v.wholesale)||0}))}));
+    return res.status(200).json({version:'9.8.3',model:'MODELED_ADDRESSABLE_OPPORTUNITY',selected_products,...result,workspaces,persistence_status});
   }catch(e){console.error('market opportunity failed',{message:e?.message||String(e)});return res.status(500).json({error:'Market opportunity could not be calculated',code:'MARKET_OPPORTUNITY_FAILED'});}
 }
