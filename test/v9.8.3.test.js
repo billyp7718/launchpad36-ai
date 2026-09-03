@@ -137,7 +137,8 @@ test('public website inputs accept domains without a URL scheme',()=>{
 test('account research joins product and buyer evidence to the selected organization',async()=>{
   const source=await readFile(new URL('../api/account-research.js',import.meta.url),'utf8');
   for(const marker of ['organization_id','universalAcquire','searchOpenAIBuyers','normalizeOfferings','focusTokens','decision-makers','runLivingIntelligencePipeline','upsertBuyer'])assert.match(source,new RegExp(marker));
-  assert.match(source,/A product category is required/);assert.match(source,/discarded_irrelevant_count/);
+  assert.match(source,/A buyer category is required/);assert.match(source,/A product or product category is required/);assert.match(source,/discarded_irrelevant_count/);
+  assert.match(source,/research_type/);assert.match(source,/buyer_category/);assert.match(source,/product_query/);
 });
 
 test('OpenAI buyer research retains only source-backed exact-account candidates',()=>{
@@ -180,12 +181,18 @@ test('account research exposes progress and prevents duplicate submissions',asyn
 
 test('saved buyer research is visible and reusable from its account',async()=>{
   const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  for(const marker of ['buyer_count','Saved buyer data','loadSavedAccountBuyers','Refresh Account Research','selectedBuyerOrgId','Buyer data saved to account'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['buyer_count','Saved buyer data','loadSavedAccountBuyers','Refresh Buyer Research','selectedBuyerOrgId','Buyer data saved to account'])assert.match(ui,new RegExp(marker));
   assert.match(ui,/api\/buyers\?organization_id=\$\{encodeURIComponent\(orgId\)\}/);
   const universe=await readFile(new URL('../api/account-universe.js',import.meta.url),'utf8');
   assert.match(universe,/count\(\*\)::int/);assert.match(universe,/buyer_data_updated_at/);
   const database=await readFile(new URL('../api/_db.js',import.meta.url),'utf8');
   assert.match(database,/on conflict \(account_id, lower\(name\), lower\(title\)\) do update/);
+});
+
+test('buyer and product account research are separate category-scoped workflows',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  for(const marker of ['What buyer category should we research','buyerResearchCategory','Research Buyers','productResearchQuery','Research Products','runBuyerResearch','runProductResearch','productResearchTable'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/research_type:researchType/);assert.match(ui,/buyer_category/);assert.match(ui,/product_query/);
 });
 
 test('account research parallelizes independent website calls',async()=>{
