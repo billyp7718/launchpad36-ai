@@ -14,6 +14,12 @@ import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
+import { reportRecipients } from '../api/market-report-email.js';
+
+test('market report email normalizes and limits recipient addresses',()=>{
+  assert.deepEqual(reportRecipients('A@Example.com; b@example.com, a@example.com'),['a@example.com','b@example.com']);
+  assert.equal(reportRecipients(Array.from({length:20},(_,i)=>`x${i}@example.com`).join(',')).length,10);
+});
 
 test('retail distributor seed contains 50 unique, categorized, sourceable accounts',()=>{
   assert.equal(RETAIL_DISTRIBUTORS.length,50);
@@ -347,4 +353,13 @@ test('saved buyer contact details are joined to account results without changing
 test('market intelligence returns calculated results when workspace schema is missing',async()=>{
   const source=await readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8');
   assert.match(source,/error\?\.code==='42P01'/);assert.match(source,/persistence_status='SCHEMA_REQUIRED'/);assert.match(source,/scenario was calculated, but workspaces were not saved/);
+});
+
+test('revenue APIs join evidence source URLs through the production schema',async()=>{
+  const sources=await Promise.all(['find-me-revenue.js','market-opportunity.js'].map(name=>readFile(new URL(`../api/${name}`,import.meta.url),'utf8')));
+  for(const source of sources){
+    assert.match(source,/join evidence_sources es on es\.id=ce\.source_id/);
+    assert.match(source,/es\.source_url/);
+    assert.doesNotMatch(source,/select organization_id,payload,source_url,observed_at/);
+  }
 });
