@@ -186,6 +186,16 @@ alter table retail_observations add column if not exists verification_status tex
 alter table opportunity_scores add column if not exists manufacturer_id uuid references manufacturers(id) on delete cascade;
 create index if not exists opportunity_scores_tenant_idx on opportunity_scores(manufacturer_id,scored_at desc);
 
+create table if not exists opportunity_workspaces (
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ organization_id uuid not null references retail_organizations(id) on delete cascade, account_id uuid references accounts(id) on delete set null,
+ route_to_market text not null default 'retail', product_set_key text not null, product_ids jsonb not null default '[]'::jsonb,
+ status text not null default 'modeled', priority text not null default 'medium', owner text default '', next_action text default '',
+ scenario jsonb not null default '{}'::jsonb, approved_at timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+ unique(manufacturer_id,organization_id,route_to_market,product_set_key)
+);
+create index if not exists opportunity_workspaces_tenant_idx on opportunity_workspaces(manufacturer_id,status,updated_at desc);
+
 create or replace function prevent_l36_immutable_mutation() returns trigger language plpgsql as $$
 begin raise exception '% is immutable; append a new record instead',tg_table_name; end $$;
 drop trigger if exists commercial_evidence_immutable on commercial_evidence;

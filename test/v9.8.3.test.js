@@ -9,6 +9,7 @@ import { validateCommercialObservation, livingHash, refreshTier } from '../api/_
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
 import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
+import { evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 
@@ -250,7 +251,7 @@ test('market intelligence UI supports multiple products, channel models and SKU 
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/class="moProduct" type="checkbox"/);assert.match(source,/Select All/);
   for(const route of ['retail','direct_b2b','distributor_dealer','mixed'])assert.match(source,new RegExp(`value="${route}"`));
-  assert.match(source,/Low/);assert.match(source,/Base Manufacturer Revenue/);assert.match(source,/High/);assert.match(source,/View SKUs/);assert.match(source,/api\/market-opportunity/);
+  assert.match(source,/Low Scenario/);assert.match(source,/Base Scenario/);assert.match(source,/High Scenario/);assert.match(source,/Review Scenario/);assert.match(source,/api\/market-opportunity/);
 });
 
 test('broad account categories match related product families',()=>{
@@ -271,4 +272,37 @@ test('product-account fit excludes incompatible and unprofiled retailers',()=>{
   assert.equal(evaluateProductAccountFit(earbuds,{name:'Electronics Retailer',categories:['Audio','Headphones']}).qualified,true);
   const result=calculateMarketOpportunity({products:[{...earbuds,variants:[{sku:'E1',wholesale:50}]}],organizations:[{id:'a',name:'Ashley Furniture',organization_type:'retailer',categories:['Furniture','Home Furnishings'],footprint:100},{id:'e',name:'Electronics Retailer',organization_type:'retailer',categories:['Audio','Headphones'],footprint:10}],route:'retail',assumptions:{annual_units_per_location:10,distribution_probability:20}});
   assert.deepEqual(result.account_opportunities.map(x=>x.name),['Electronics Retailer']);
+});
+
+test('account scale and confidence cannot qualify an unrelated product',()=>{
+  const product={id:'p1',name:'Wireless Earbuds',category:'Wireless Audio',categories:['Headphones'],channels:['furniture']};
+  const account={id:'a1',name:'Huge Furniture Chain',categories:['Furniture'],channel_codes:['furniture'],footprint:5000,confidence:100};
+  const fit=evaluateProductAccountFit(product,account);
+  assert.equal(fit.qualified,false);assert.equal(fit.score,0);assert.equal(fit.tier,'INCOMPATIBLE_VERTICAL');
+});
+
+test('verified assortment evidence is separated from modeled profile fit dollars',()=>{
+  const products=[{id:'p1',name:'Full Motion TV Mount',category:'TV Mounts',categories:['TV Mounts'],variants:[{sku:'M1',wholesale:100}]}];
+  const organizations=[
+    {id:'verified',name:'Verified Retailer',organization_type:'retailer',categories:['Home Electronics'],footprint:10},
+    {id:'profile',name:'Profile Retailer',organization_type:'retailer',categories:['TV Mounts'],footprint:10}
+  ];
+  const profiles=evidenceProfiles([{organization_id:'verified',payload:{offerings:[{name:'Full Motion TV Wall Mount',category:'TV Mounts'}]},source_url:'https://example.com/mounts',last_verified_at:'2026-09-03T00:00:00Z'}]);
+  const result=calculateMarketOpportunity({products,organizations,route:'retail',assumptions:{annual_units_per_location:10,distribution_probability:20},evidenceByOrganization:profiles});
+  assert.equal(result.summary.target_account_count,2);assert.equal(result.summary.verified_account_count,1);assert.equal(result.summary.account_category_coverage,50);
+  assert.equal(result.summary.base_manufacturer_revenue,4000);assert.equal(result.summary.evidence_backed_manufacturer_revenue,2000);
+  assert.equal(result.account_opportunities.find(x=>x.organization_id==='verified').evidence_status,'VERIFIED');
+  assert.equal(result.account_opportunities.find(x=>x.organization_id==='profile').evidence_backed_manufacturer_revenue,0);
+});
+
+test('opportunity workspaces persist tenant-scoped scenarios and gate approval on evidence',async()=>{
+  const [migration,apiSource,ui]=await Promise.all([
+    readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),
+    readFile(new URL('../index.html',import.meta.url),'utf8')
+  ]);
+  assert.match(migration,/create table if not exists opportunity_workspaces/);
+  assert.match(apiSource,/where ow\.manufacturer_id=\$\{tenant\.tenant_id\}/);
+  assert.match(apiSource,/Verify relevant account assortment evidence before approving/);
+  for(const marker of ['Opportunity Workspace','loadOpportunityWorkspaces','Approve Opportunity','Evidence-Backed','Export CSV'])assert.match(ui,new RegExp(marker));
 });
