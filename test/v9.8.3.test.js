@@ -348,3 +348,12 @@ test('market intelligence returns calculated results when workspace schema is mi
   const source=await readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8');
   assert.match(source,/error\?\.code==='42P01'/);assert.match(source,/persistence_status='SCHEMA_REQUIRED'/);assert.match(source,/scenario was calculated, but workspaces were not saved/);
 });
+
+test('revenue APIs join evidence source URLs through the production schema',async()=>{
+  const sources=await Promise.all(['find-me-revenue.js','market-opportunity.js'].map(name=>readFile(new URL(`../api/${name}`,import.meta.url),'utf8')));
+  for(const source of sources){
+    assert.match(source,/join evidence_sources es on es\.id=ce\.source_id/);
+    assert.match(source,/es\.source_url/);
+    assert.doesNotMatch(source,/select organization_id,payload,source_url,observed_at/);
+  }
+});
