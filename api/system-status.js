@@ -77,9 +77,11 @@ export default async function handler(req, res) {
 
     const firecrawlConfigured = Boolean(process.env.FIRECRAWL_API_KEY);
     components.push(component(
-      'Firecrawl',
-      firecrawlConfigured ? 'CONFIGURED' : 'NOT_CONFIGURED',
-      firecrawlConfigured ? 'API key is present; a live scrape is still required' : 'FIRECRAWL_API_KEY is missing'
+      'Optional Web Crawler',
+      firecrawlConfigured ? 'CONFIGURED' : 'OPTIONAL',
+      firecrawlConfigured
+        ? 'Firecrawl is available for background monitoring; interactive account research uses OpenAI'
+        : 'Interactive account research uses OpenAI; Firecrawl is optional for background monitoring'
     ));
 
     const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
