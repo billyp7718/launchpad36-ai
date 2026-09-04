@@ -418,6 +418,15 @@ test('account lead-gen UI is account-scoped, deletable, and captures head office
   assert.match(productApi,/req\.method==='DELETE'/);assert.match(brandApi,/req\.method==='DELETE'/);
 });
 
+test('products can be added and fully edited without a catalog import',async()=>{
+  const [ui,productApi]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/products.js',import.meta.url),'utf8')]);
+  for(const marker of ['openProductEditor','saveProductEditor','Add Product','Edit','Product Family','Additional Categories','Sales Channels','SKUs & Pricing','Add SKU'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/method:id\?'PATCH':'POST'/);assert.match(ui,/productEditorModal/);assert.match(ui,/@media\(max-width:760px\)[\s\S]*?\.variantRow\{grid-template-columns:1fr 1fr\}/);
+  assert.match(productApi,/req\.method==='PATCH'/);assert.match(productApi,/where id=\$\{id\} and manufacturer_id=\$\{tenant\.tenant_id\} and active=true/);
+  for(const marker of ['product_family','description','positioning','differentiator','product_url','image_url','product_categories','product_channels','product_variants'])assert.match(productApi,new RegExp(marker));
+  assert.match(productApi,/brand_id.*manufacturer_id=\$\{tenantId\}/);assert.match(productApi,/sql\.begin/);
+});
+
 test('account information can be edited without replacing its organization id',async()=>{
   const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/account-universe.js',import.meta.url),'utf8')]);
   assert.match(ui,/openEditAccount/);assert.match(ui,/saveAccountEdits/);assert.match(ui,/method:'PATCH'/);assert.match(ui,/Corrections keep the existing account ID/);
