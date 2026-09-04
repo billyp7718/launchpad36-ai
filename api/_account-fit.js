@@ -8,6 +8,7 @@ const CATEGORY_CONCEPTS={
   automotive:['automotive','car audio','vehicle'],
   technology:['technology','electronics','consumer electronics','smart home','computer','mobile'],
   appliances:['appliance','washer','dryer','refrigerator','dishwasher'],
+  household_cleaning:['household cleaning','cleaning product','cleaning supplies','household supplies','household essentials','household goods','household consumables','consumer packaged goods','cpg','laundry care','dish care','surface cleaner','floor cleaner','bathroom cleaner','all purpose cleaner','multipurpose cleaner','disinfectant','sanitizer','detergent','cleaner','grocery','supermarket','drug','drugstore','pharmacy','general merchandise','mass merchant','big box','discount retail','value retail','dollar store','warehouse club'],
   commercial_av:['commercial av','pro av','digital signage','conference room','collaboration']
 };
 
@@ -19,6 +20,7 @@ const CONCEPT_CHANNELS={
   automotive:['automotive','ecommerce','mass','club','dealer','distribution'],
   technology:['ce','consumer_electronics','ecommerce','mass','club','department','office','dealer','distribution'],
   appliances:['appliances','ecommerce','mass','club','department','home_improvement','dealer','distribution'],
+  household_cleaning:['mass','ecommerce','club','warehouse','department','home_improvement','grocery','supermarket','drug','pharmacy','value','dollar','distribution'],
   commercial_av:['specialty_av','office','dealer','distribution','integrator','enterprise','corporate','hospitality','healthcare','education','government']
 };
 
