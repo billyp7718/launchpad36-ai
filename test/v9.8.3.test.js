@@ -274,6 +274,20 @@ test('category relevance gate rejects unrelated retailer products',()=>{
   assert.equal(rows.length,1);assert.match(rows[0].name,/TV Wall Mount/);assert.deepEqual(focusTokens('', 'https://homedepot.com/tvmounts'),['tv','mount']);
 });
 
+test('comparable product research retains direct substitutes across price tiers',async()=>{
+  const data={json:{offerings:[
+    {name:'Glass Cleaner Spray',brand:'Brand A',category:'Household Cleaners',price_text:'$4.99',evidence_quote:'Glass Cleaner Spray $4.99'},
+    {name:'Premium Aerosol Glass Cleaner',brand:'Brand B',category:'Cleaning Supplies',price_text:'$8.49',evidence_quote:'Premium Aerosol Glass Cleaner $8.49'},
+    {name:'Wireless Earbuds',brand:'Brand C',category:'Electronics',price_text:'$19.99',evidence_quote:'Wireless Earbuds $19.99'}
+  ]}};
+  const rows=normalizeOfferings(data,focusTokens('Cleaning Products'));
+  assert.deepEqual(rows.map(x=>x.name),['Glass Cleaner Spray','Premium Aerosol Glass Cleaner']);
+  assert.deepEqual(rows.map(x=>x.price_numeric),[4.99,8.49]);
+  const openaiSource=await readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8');
+  assert.match(openaiSource,/Price is comparison context, never an exclusion criterion/);
+  assert.match(openaiSource,/even when their price tier differs/);
+});
+
 test('UI supports rejecting evidence and replacing a bad target',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/Reject Evidence/);assert.match(source,/Replace Monitoring Target/);assert.match(source,/replace_target_id:targetId/);assert.doesNotMatch(source,/replace_active:true/);assert.match(source,/discarded_irrelevant_count/);
