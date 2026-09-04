@@ -400,3 +400,13 @@ test('retailer discovery agent is attached to the existing weekly Vercel job',as
   assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(ui,/Discover New Retailers/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
   const crons=JSON.parse(config).crons;assert.equal(crons.length,2);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));
 });
+
+test('account research modal keeps product research visible across screen sizes',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(ui,/\.modalCard\.accountResearchModal\s*\{[^}]*width:\s*min\(1320px,/s);
+  assert.match(ui,/\.accountResearchGrid\s*\{[^}]*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/s);
+  assert.match(ui,/@media\s*\(max-width:\s*1100px\)[\s\S]*?\.accountResearchGrid\s*\{\s*grid-template-columns:\s*1fr/s);
+  assert.match(ui,/class="card accountResearchPanel"><div class="label">PRODUCT RESEARCH/);
+  assert.match(ui,/aria-label="Scrollable product research results"/);
+  assert.match(ui,/classList\.remove\(["']accountResearchModal["']\)/);
+});
