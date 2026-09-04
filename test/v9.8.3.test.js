@@ -203,6 +203,12 @@ test('OpenAI research uses Responses web search and never exposes the API key',a
   assert.doesNotMatch(source,/OPENAI_API_KEY\s*[,}]/);
 });
 
+test('invalid Apollo authentication degrades optional enrichment without failing buyer research',async()=>{
+  const [provider,accountApi,ui]=await Promise.all([readFile(new URL('../api/_buyer-enrichment.js',import.meta.url),'utf8'),readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  assert.match(provider,/response\.status===401\|\|response\.status===403/);assert.match(provider,/OPTIONAL_UNAVAILABLE/);assert.match(provider,/OpenAI research continued/);
+  assert.match(accountApi,/apollo\.detail/);assert.match(ui,/Optional Apollo enrichment/);
+});
+
 test('buyer and evidence interfaces are account-scoped and mobile-safe',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/id="buyerAccount"/);assert.match(source,/api\/buyers\?organization_id=/);

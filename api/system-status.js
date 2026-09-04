@@ -95,7 +95,7 @@ export default async function handler(req, res) {
     components.push(component(
       'Buyer Enrichment',
       apolloConfigured ? 'CONFIGURED' : 'OPTIONAL',
-      apolloConfigured ? 'Optional Apollo account-domain buyer search is available' : 'Optional: add APOLLO_API_KEY for a second buyer-data source'
+      apolloConfigured ? 'Optional Apollo key is present; validity is checked during live research' : 'Optional: add APOLLO_API_KEY for a second buyer-data source'
     ));
 
     let targetCount = 0;
