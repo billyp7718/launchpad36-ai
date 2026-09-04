@@ -179,6 +179,13 @@ test('interactive account product research uses OpenAI without Firecrawl browser
   assert.match(ui,/Searching account sources with OpenAI/);assert.match(ui,/OpenAI web research/);assert.doesNotMatch(ui,/Website pages:/);
 });
 
+test('account product research can find comparables for a tenant-owned portfolio product',async()=>{
+  const [apiSource,openaiSource,ui]=await Promise.all([readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  for(const marker of ['comparableProductQuery','portfolioProductOptions','Comparable to one of your products','comparison_product_id','selectedComparableProduct'])assert.match(ui,new RegExp(marker));
+  assert.match(apiSource,/p\.manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(apiSource,/comparisonProduct/);assert.match(apiSource,/openai_comparable_product_research/);
+  assert.match(openaiSource,/comparisonProduct/);assert.match(openaiSource,/competing or substitute offerings/);assert.match(openaiSource,/do not search only for our brand/);
+});
+
 test('OpenAI buyer research retains only source-backed exact-account candidates',()=>{
   const valid={name:'Jane Merchant',title:'Senior Merchant, Consumer Electronics',account:'The Home Depot',category_scope:'Consumer electronics',source_url:'https://example.com/home-depot-buyer',source_title:'Trade interview',evidence_quote:'Jane Merchant leads consumer electronics buying.',evidence_date:'2026-08-01',confidence:86,verification_status:'REVIEW_REQUIRED',rationale:'Current role and category are explicit.'};
   const payload={output:[
