@@ -4,8 +4,9 @@ export default async function handler(req,res){
  try{
   if(!requireAdmin(req,res)) return;
   if(req.method==='GET'){
-    const sql=db(); const account=req.query.account_id||null;
-    const rows=account ? await sql`select * from competitive_products where account_id=${account} and active=true order by verified_at desc nulls last, brand`
+    const sql=db(); const account=req.query.account_id||null,organization=req.query.organization_id||null;
+    const rows=organization ? await sql`select cp.* from competitive_products cp join accounts a on a.id=cp.account_id where a.organization_id=${organization} and cp.active=true order by cp.updated_at desc,cp.brand`
+                       : account ? await sql`select * from competitive_products where account_id=${account} and active=true order by updated_at desc,brand`
                        : await sql`select * from competitive_products where active=true order by updated_at desc limit 2000`;
     return res.status(200).json({products:rows});
   }

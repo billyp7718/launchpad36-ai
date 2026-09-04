@@ -104,7 +104,7 @@ test('immutable change history keeps processing state in a separate table',async
 
 test('system status reports the complete production readiness chain without exposing secrets',async()=>{
   const source=await readFile(new URL('../api/system-status.js',import.meta.url),'utf8');
-  for(const name of ['Database','Schema','Firecrawl','OpenAI Research','Buyer Enrichment','Monitoring','Evidence','Change Detection','Scheduled Refresh']){
+  for(const name of ['Database','Schema','Optional Web Crawler','OpenAI Research','Buyer Enrichment','Monitoring','Evidence','Change Detection','Scheduled Refresh']){
     assert.match(source,new RegExp(`['\"]${name}['\"]`));
   }
   assert.match(source,/VERCEL_GIT_COMMIT_SHA/);
@@ -160,9 +160,23 @@ test('public website inputs accept domains without a URL scheme',()=>{
 
 test('account research joins product and buyer evidence to the selected organization',async()=>{
   const source=await readFile(new URL('../api/account-research.js',import.meta.url),'utf8');
-  for(const marker of ['organization_id','universalAcquire','searchOpenAIBuyers','normalizeOfferings','focusTokens','decision-makers','runLivingIntelligencePipeline','upsertBuyer'])assert.match(source,new RegExp(marker));
+  for(const marker of ['organization_id','searchOpenAIProducts','searchOpenAIBuyers','normalizeOfferings','focusTokens','decision-makers','runLivingIntelligencePipeline','upsertBuyer'])assert.match(source,new RegExp(marker));
+  assert.doesNotMatch(source,/universalAcquire/);
   assert.match(source,/A buyer category is required/);assert.match(source,/A product or product category is required/);assert.match(source,/discarded_irrelevant_count/);
   assert.match(source,/research_type/);assert.match(source,/buyer_category/);assert.match(source,/product_query/);
+  assert.match(source,/upsertCompetitiveProduct/);assert.match(source,/saved_product_count/);
+});
+
+test('saved competitive products can be reloaded by organization',async()=>{
+  const [source,ui]=await Promise.all([readFile(new URL('../api/competitive-products.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  assert.match(source,/organization_id/);assert.match(source,/join accounts a on a\.id=cp\.account_id/);assert.match(source,/cp\.active=true/);
+  assert.match(ui,/loadSavedAccountProducts/);assert.match(ui,/Saved account products/);assert.match(ui,/competitive-products\?organization_id=/);
+});
+
+test('interactive account product research uses OpenAI without Firecrawl browser slots',async()=>{
+  const [apiSource,ui]=await Promise.all([readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  assert.match(apiSource,/searchOpenAIProducts/);assert.doesNotMatch(apiSource,/universalAcquire/);assert.doesNotMatch(apiSource,/product_sources:\{firecrawl/);
+  assert.match(ui,/Searching account sources with OpenAI/);assert.match(ui,/OpenAI web research/);assert.doesNotMatch(ui,/Website pages:/);
 });
 
 test('OpenAI buyer research retains only source-backed exact-account candidates',()=>{
