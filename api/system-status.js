@@ -58,6 +58,11 @@ export default async function handler(req, res) {
       const columns = await sql`select column_name from information_schema.columns where table_schema='public' and table_name='monitor_targets'`;
       if (!columns.some(row => row.column_name === 'category_focus')) missing.push('monitor_targets.category_focus');
     }
+    const organizationTable = (await sql`select to_regclass('public.retail_organizations') as name`)[0]?.name;
+    if (organizationTable) {
+      const columns = await sql`select column_name from information_schema.columns where table_schema='public' and table_name='retail_organizations'`;
+      if (!columns.some(row => row.column_name === 'headquarters')) missing.push('retail_organizations.headquarters');
+    }
     components.push(component(
       'Schema',
       missing.length ? 'FAILED' : 'WORKING',
