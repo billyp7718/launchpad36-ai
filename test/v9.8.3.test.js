@@ -328,6 +328,23 @@ test('broad account categories match related product families',()=>{
   assert.equal(result.summary.target_account_count,1);assert.equal(result.summary.base_manufacturer_revenue,5000);
 });
 
+test('household cleaning products qualify relevant mass, grocery and drug retailers only',()=>{
+  const product={id:'clean-1',name:'Concentrated Surface Cleaner',category:'Household Cleaning Products',categories:['Cleaning Supplies'],channels:['mass','grocery'],variants:[{sku:'CLEAN-1',wholesale:5,msrp:9.99}]};
+  assert.ok(categoryConcepts([product.category]).includes('household_cleaning'));
+  const organizations=[
+    {id:'mass',name:'Mass Merchant',organization_type:'retailer',channel_codes:['mass'],categories:['General Merchandise'],footprint:100},
+    {id:'grocery',name:'Grocery Chain',organization_type:'retailer',channel_codes:['grocery'],categories:['Grocery'],footprint:50},
+    {id:'drug',name:'Drug Chain',organization_type:'retailer',channel_codes:['drug'],categories:['Pharmacy'],footprint:25},
+    {id:'furniture',name:'Furniture Chain',organization_type:'retailer',channel_codes:['furniture'],categories:['Furniture'],footprint:100},
+    {id:'electronics',name:'Electronics Chain',organization_type:'retailer',channel_codes:['ce'],categories:['Consumer Electronics'],footprint:100}
+  ];
+  const result=calculateMarketOpportunity({products:[product],organizations,route:'retail',assumptions:{annual_units_per_location:12,distribution_probability:25}});
+  assert.deepEqual(result.account_opportunities.map(x=>x.organization_id),['mass','grocery','drug']);
+  assert.equal(result.summary.target_account_count,3);
+  assert.equal(evaluateProductAccountFit(product,organizations[3]).qualified,false);
+  assert.equal(evaluateProductAccountFit(product,organizations[4]).qualified,false);
+});
+
 test('account universe UI exposes Excel CSV import, manual entry and a template',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/Import Accounts/);assert.match(source,/Download Template/);assert.match(source,/Add Account/);assert.match(source,/api\/retail-universe-import/);assert.match(source,/launchpad36-account-import-template\.csv/);
