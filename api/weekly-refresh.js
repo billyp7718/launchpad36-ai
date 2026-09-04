@@ -1,6 +1,7 @@
 import { db, upsertBuyer, upsertCompetitiveProduct } from './_db.js';
 import { persistEvidence } from './_evidence.js';
 import { runLivingIntelligencePipeline } from './_living-intelligence.js';
+import { runRetailerDiscovery } from './retailer-discovery-agent.js';
 
 function origin(req){
   const proto=req.headers['x-forwarded-proto']||'https';
@@ -18,8 +19,10 @@ export default async function handler(req,res){
   if(auth!==`Bearer ${secret}`) return res.status(401).json({error:'Unauthorized'});
   const sql=db();
   const run=(await sql`insert into refresh_runs(job_type,status) values('weekly-buyer-product-refresh','started') returning id`)[0];
-  let ap=0,bu=0,pu=0,ev=0; const errors=[];
+  let ap=0,bu=0,pu=0,ev=0,retailerDiscovery={status:'SKIPPED',added:0,updated:0}; const errors=[];
   try{
+    const discoveryRun=(await sql`insert into refresh_runs(job_type,status) values('weekly-retailer-discovery','started') returning id`)[0];
+    try{retailerDiscovery=await runRetailerDiscovery(sql,{limit:Number(process.env.WEEKLY_RETAILER_DISCOVERY_LIMIT)||12});await sql`update refresh_runs set status=${retailerDiscovery.status.startsWith('COMPLETED')?'completed':retailerDiscovery.status.toLowerCase()},accounts_processed=${retailerDiscovery.added+retailerDiscovery.updated},errors=${sql.json(retailerDiscovery.errors||[])},finished_at=now() where id=${discoveryRun.id}`;if(retailerDiscovery.errors?.length)errors.push(...retailerDiscovery.errors.map(x=>({retailer_discovery:x})))}catch(error){await sql`update refresh_runs set status='failed',errors=${sql.json([{fatal:String(error.message||error).slice(0,300)}])},finished_at=now() where id=${discoveryRun.id}`;errors.push({retailer_discovery:{error:String(error.message||error).slice(0,300)}})}
     const accounts=await sql`select * from accounts where active=true and domain<>'' order by name`;
     for(const a of accounts){
       ap++;
@@ -58,7 +61,7 @@ export default async function handler(req,res){
       }catch(e){errors.push({account:a.name,error:e.message})}
     }
     await sql`update refresh_runs set status='completed',accounts_processed=${ap},buyers_upserted=${bu},products_upserted=${pu},errors=${sql.json(errors)},finished_at=now() where id=${run.id}`;
-    res.status(200).json({status:'completed',accounts_processed:ap,buyers_upserted:bu,products_upserted:pu,evidence_persisted:ev,errors});
+    res.status(200).json({status:'completed',accounts_processed:ap,buyers_upserted:bu,products_upserted:pu,evidence_persisted:ev,retailer_discovery:retailerDiscovery,errors});
   }catch(e){
     errors.push({fatal:e.message});
     await sql`update refresh_runs set status='failed',errors=${sql.json(errors)},finished_at=now() where id=${run.id}`;
