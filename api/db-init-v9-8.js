@@ -51,6 +51,7 @@ create table if not exists retail_organizations (
  confidence integer not null default 0, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create unique index if not exists retail_org_name_idx on retail_organizations(lower(name));
+alter table retail_organizations add column if not exists headquarters text default '';
 create index if not exists retail_org_channels_gin on retail_organizations using gin(channel_codes);
 create index if not exists retail_org_categories_gin on retail_organizations using gin(categories);
 

@@ -11,7 +11,7 @@ import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refr
 import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
-import { normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
+import { normalizeOpenAIProducts, normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
@@ -362,4 +362,28 @@ test('revenue APIs join evidence source URLs through the production schema',asyn
     assert.match(source,/es\.source_url/);
     assert.doesNotMatch(source,/select organization_id,payload,source_url,observed_at/);
   }
+});
+
+test('OpenAI account product research keeps official-domain comparable products and channel evidence',()=>{
+  const source='https://www.academy.com/p/bluetooth-speaker';
+  const payload={output:[{type:'web_search_call',action:{sources:[{url:source,title:'Speaker'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({status:'SUCCESS',search_summary:'Found one',products:[{brand:'JBL',name:'Portable Bluetooth Speaker',category:'Bluetooth Speakers',price_text:'$99.99',availability:'Shipping and store pickup available',purchase_channel:'OMNICHANNEL_SIGNAL',source_url:source,evidence_quote:'Shipping and pickup available',confidence:86}]})}]}]};
+  const result=normalizeOpenAIProducts(payload,{domain:'academy.com'});
+  assert.equal(result.status,'SUCCESS');assert.equal(result.products.length,1);assert.equal(result.products[0].purchase_channel,'OMNICHANNEL_SIGNAL');
+  assert.equal(normalizeOpenAIProducts(payload,{domain:'different.com'}).products.length,0);
+});
+
+test('account lead-gen UI is account-scoped, deletable, and captures head office',async()=>{
+  const [ui,migration,status,productApi,brandApi]=await Promise.all([
+    readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../api/products.js',import.meta.url),'utf8'),readFile(new URL('../api/brands.js',import.meta.url),'utf8')
+  ]);
+  assert.doesNotMatch(ui,/const NAV=\[[^\]]*'Channel Intelligence'/);assert.match(ui,/openAccountChannel/);assert.doesNotMatch(ui,/Add 50 Retail Distributors/);
+  for(const marker of ['deleteProduct','deleteBrand','Head Office','Online vs In-store','Buyer Contact'])assert.match(ui,new RegExp(marker));
+  assert.match(migration,/retail_organizations add column if not exists headquarters/);assert.match(status,/retail_organizations\.headquarters/);
+  assert.match(productApi,/req\.method==='DELETE'/);assert.match(brandApi,/req\.method==='DELETE'/);
+});
+
+test('account information can be edited without replacing its organization id',async()=>{
+  const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/account-universe.js',import.meta.url),'utf8')]);
+  assert.match(ui,/openEditAccount/);assert.match(ui,/saveAccountEdits/);assert.match(ui,/method:'PATCH'/);assert.match(ui,/Corrections keep the existing account ID/);
+  assert.match(apiSource,/req\.method==='PATCH'/);assert.match(apiSource,/where id=\$\{id\} and active=true returning \*/);assert.match(apiSource,/headquarters=\$\{/);
 });
