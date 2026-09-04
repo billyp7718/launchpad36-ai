@@ -305,6 +305,14 @@ test('market intelligence UI supports multiple products, channel models and SKU 
   assert.match(source,/Low Scenario/);assert.match(source,/Base Scenario/);assert.match(source,/High Scenario/);assert.match(source,/Review Scenario/);assert.match(source,/api\/market-opportunity/);
 });
 
+test('market intelligence replaces the redundant find me revenue interface',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  const nav=source.match(/const NAV=\[[^\]]+\]/)?.[0]||'';
+  assert.doesNotMatch(nav,/Find Me Revenue/);
+  assert.doesNotMatch(source,/show\('Find Me Revenue'\)/);
+  assert.match(source,/Analyze Market Opportunity/);
+});
+
 test('broad account categories match related product families',()=>{
   assert.ok(categoryConcepts(['Floorstanding Speakers']).includes('audio'));
   const result=calculateMarketOpportunity({products:[{id:'p1',name:'Speaker',category:'Floorstanding Speakers',variants:[{sku:'S1',wholesale:500}]}],organizations:[{id:'r1',name:'Audio Retailer',organization_type:'retailer',categories:['Audio'],footprint:10}],route:'retail',assumptions:{annual_units_per_location:2,distribution_probability:50}});
@@ -467,6 +475,19 @@ test('opportunity details support editable proposed assortments and account comp
   assert.match(apiSource,/competitive_offerings/);assert.match(apiSource,/b\.email/);assert.match(apiSource,/b\.phone/);assert.match(apiSource,/b\.linkedin/);
   for(const marker of ['Opportunity Buyer','Assign Buyer','saveOpportunityBuyer','Research All Buyers'])assert.match(ui,new RegExp(marker));
   assert.match(apiSource,/assigned_buyer_id/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+});
+
+test('account assortment volume uses catalog dealer cost to calculate annual revenue',async()=>{
+  const [ui,apiSource]=await Promise.all([
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')
+  ]);
+  for(const marker of ['Monthly Sales Volume','Dealer Cost','Annual Revenue','assortmentMonthly','expected monthly unit sales'])assert.match(ui,new RegExp(marker,'i'));
+  assert.match(ui,/monthly units × catalog dealer cost × 12/i);
+  assert.match(apiSource,/pv\.wholesale/);
+  for(const marker of ['monthly_sales_volume','dealer_cost','annual_revenue','account_sku_monthly_units_x_dealer_cost'])assert.match(apiSource,new RegExp(marker));
+  assert.match(apiSource,/modeled_contribution:dealerCost/);
+  assert.match(apiSource,/dealerCost\*volume\*12/);
 });
 
 test('opportunity workspace can add and remove targets without deleting account intelligence',async()=>{
