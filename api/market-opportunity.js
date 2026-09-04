@@ -3,7 +3,7 @@ import { resolveTenant } from './_tenant.js';
 import { buyerProfiles, categoryConcepts, evaluateProductAccountFit, evidenceProfiles } from './_account-fit.js';
 
 const ROUTES=new Set(['retail','direct_b2b','distributor_dealer','mixed']);
-const RETAIL_CHANNELS=new Set(['mass','ce','ecommerce','specialty_av','office','furniture','club','home_improvement','automotive','department']);
+const RETAIL_CHANNELS=new Set(['mass','ce','ecommerce','specialty_av','office','furniture','club','warehouse','home_improvement','automotive','department','grocery','supermarket','drug','pharmacy','value','dollar']);
 const PARTNER_CHANNELS=new Set(['distribution','dealer']);
 const clean=x=>String(x??'').trim().toLowerCase();
 const money=x=>Math.round((Number(x)||0)*100)/100;
