@@ -205,7 +205,7 @@ test('account research exposes progress and prevents duplicate submissions',asyn
 
 test('saved buyer research is visible and reusable from its account',async()=>{
   const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  for(const marker of ['buyer_count','Saved buyer data','loadSavedAccountBuyers','Refresh Buyer Research','selectedBuyerOrgId','Buyer data saved to account'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['buyer_count','Saved buyer data','loadSavedAccountBuyers','Refresh All Buyers','selectedBuyerOrgId','Buyer data saved to account'])assert.match(ui,new RegExp(marker));
   assert.match(ui,/api\/buyers\?organization_id=\$\{encodeURIComponent\(orgId\)\}/);
   const universe=await readFile(new URL('../api/account-universe.js',import.meta.url),'utf8');
   assert.match(universe,/count\(\*\)::int/);assert.match(universe,/buyer_data_updated_at/);
@@ -213,10 +213,11 @@ test('saved buyer research is visible and reusable from its account',async()=>{
   assert.match(database,/on conflict \(account_id, lower\(name\), lower\(title\)\) do update/);
 });
 
-test('buyer and product account research are separate category-scoped workflows',async()=>{
-  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  for(const marker of ['What buyer category should we research','buyerResearchCategory','Research Buyers','productResearchQuery','Research Products','runBuyerResearch','runProductResearch','productResearchTable'])assert.match(ui,new RegExp(marker));
-  assert.match(ui,/research_type:researchType/);assert.match(ui,/buyer_category/);assert.match(ui,/product_query/);
+test('buyer research searches all buyer functions while product research stays category-scoped',async()=>{
+  const [ui,apiSource,openaiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8')]);
+  for(const marker of ['Find buyers for this account','Research All Buyers','all_buyers','productResearchQuery','Research Products','runBuyerResearch','runProductResearch','productResearchTable'])assert.match(ui,new RegExp(marker));
+  assert.doesNotMatch(ui,/buyerResearchCategory/);assert.match(ui,/research_type:researchType/);assert.match(ui,/product_query/);
+  assert.match(apiSource,/all_buyers/);assert.match(apiSource,/allCategories:allBuyers/);assert.match(openaiSource,/all buying functions/);
 });
 
 test('account research parallelizes independent website calls',async()=>{
@@ -399,4 +400,27 @@ test('retailer discovery agent is attached to the existing weekly Vercel job',as
   assert.match(agent,/searchOpenAIRetailers/);assert.match(agent,/DISCOVERY_CANDIDATE/);assert.match(agent,/runLivingIntelligencePipeline/);assert.match(agent,/where active=true and \(lower\(regexp_replace\(domain/);
   assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(ui,/Discover New Retailers/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
   const crons=JSON.parse(config).crons;assert.equal(crons.length,2);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));
+});
+
+test('account research modal keeps product research visible across screen sizes',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(ui,/\.modalCard\.accountResearchModal\s*\{[^}]*width:\s*min\(1320px,/s);
+  assert.match(ui,/\.accountResearchGrid\s*\{[^}]*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/s);
+  assert.match(ui,/@media\s*\(max-width:\s*1100px\)[\s\S]*?\.accountResearchGrid\s*\{\s*grid-template-columns:\s*1fr/s);
+  assert.match(ui,/class="card accountResearchPanel"><div class="label">PRODUCT RESEARCH/);
+  assert.match(ui,/aria-label="Scrollable product research results"/);
+  assert.match(ui,/classList\.remove\(["']accountResearchModal["']\)/);
+});
+
+test('opportunity details support editable proposed assortments and account competitive offerings',async()=>{
+  const [ui,apiSource]=await Promise.all([
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')
+  ]);
+  for(const marker of ['Suggested Product Assortment','Save Proposed Assortment','addAssortmentProduct','removeAssortmentProduct','Competitive Offerings at','Research Account Products'])assert.match(ui,new RegExp(marker));
+  assert.match(apiSource,/proposed_assortment/);assert.match(apiSource,/assortment_updated_at/);assert.match(apiSource,/manufacturer_id=\$\{tenant\.tenant_id\}/);
+  assert.match(apiSource,/from commercial_evidence ce join evidence_sources es/);assert.match(apiSource,/from competitive_products cp join accounts a/);
+  assert.match(apiSource,/competitive_offerings/);assert.match(apiSource,/b\.email/);assert.match(apiSource,/b\.phone/);assert.match(apiSource,/b\.linkedin/);
+  for(const marker of ['Opportunity Buyer','Assign Buyer','saveOpportunityBuyer','Research All Buyers'])assert.match(ui,new RegExp(marker));
+  assert.match(apiSource,/assigned_buyer_id/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
 });
