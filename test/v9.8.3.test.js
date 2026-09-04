@@ -373,6 +373,14 @@ test('OpenAI account product research keeps official-domain comparable products 
   assert.equal(normalizeOpenAIProducts(payload,{domain:'different.com'}).products.length,0);
 });
 
+test('distributor research accepts explicit third-party line evidence only for the exact account',()=>{
+  const source='https://manufacturer.example/distributors';
+  const payload={output:[{type:'web_search_call',action:{sources:[{url:source,title:'Authorized distributors'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({status:'FOUND',search_summary:'Line found',products:[{account:'Davis Distribution',brand:'Example Audio',name:'Example Audio product line',category:'Audio',price_text:'',availability:'Authorized distributor',purchase_channel:'UNKNOWN',source_url:source,source_title:'Authorized distributors',evidence_quote:'Davis Distribution carries Example Audio',confidence:84}]})}]}]};
+  assert.equal(normalizeOpenAIProducts(payload,{domain:'davisdistribution.com',account:'Davis Distribution',allow_third_party_evidence:true}).products.length,1);
+  assert.equal(normalizeOpenAIProducts(payload,{domain:'davisdistribution.com',account:'Different Distributor',allow_third_party_evidence:true}).products.length,0);
+  assert.equal(normalizeOpenAIProducts(payload,{domain:'davisdistribution.com',account:'Davis Distribution'}).products.length,0);
+});
+
 test('account lead-gen UI is account-scoped, deletable, and captures head office',async()=>{
   const [ui,migration,status,productApi,brandApi]=await Promise.all([
     readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../api/products.js',import.meta.url),'utf8'),readFile(new URL('../api/brands.js',import.meta.url),'utf8')
@@ -417,10 +425,18 @@ test('opportunity details support editable proposed assortments and account comp
     readFile(new URL('../index.html',import.meta.url),'utf8'),
     readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')
   ]);
-  for(const marker of ['Suggested Product Assortment','Save Proposed Assortment','addAssortmentProduct','removeAssortmentProduct','Competitive Offerings at','Research Account Products'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Account Assortment Comparison','Edit Proposed Assortment','Save Proposed Assortment','addAssortmentProduct','removeAssortmentProduct','All Source-Backed Account Offerings','Research Account Products'])assert.match(ui,new RegExp(marker));
   assert.match(apiSource,/proposed_assortment/);assert.match(apiSource,/assortment_updated_at/);assert.match(apiSource,/manufacturer_id=\$\{tenant\.tenant_id\}/);
   assert.match(apiSource,/from commercial_evidence ce join evidence_sources es/);assert.match(apiSource,/from competitive_products cp join accounts a/);
   assert.match(apiSource,/competitive_offerings/);assert.match(apiSource,/b\.email/);assert.match(apiSource,/b\.phone/);assert.match(apiSource,/b\.linkedin/);
   for(const marker of ['Opportunity Buyer','Assign Buyer','saveOpportunityBuyer','Research All Buyers'])assert.match(ui,new RegExp(marker));
   assert.match(apiSource,/assigned_buyer_id/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+});
+
+test('opportunity workspace can add and remove targets without deleting account intelligence',async()=>{
+  const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')]);
+  assert.doesNotMatch(ui,/Trust boundary/);
+  for(const marker of ['Add Target Account','openAddTargetAccount','createTargetAccount','Remove Target','removeTargetAccount','account_and_evidence_preserved'])assert.match(`${ui}\n${apiSource}`,new RegExp(marker));
+  assert.match(apiSource,/req\.body\?\.action==='create'/);assert.match(apiSource,/req\.method==='DELETE'/);assert.match(apiSource,/delete from opportunity_workspaces/);
+  assert.doesNotMatch(apiSource,/delete from retail_organizations/);assert.doesNotMatch(apiSource,/delete from commercial_evidence/);
 });

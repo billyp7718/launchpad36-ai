@@ -4,6 +4,7 @@ import { resolveTenant } from './_tenant.js';
 const clean=(value,max=300)=>String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 const STATUSES=new Set(['modeled','research_required','ready','approved','archived']);
 const ASSORTMENT_ROLES=new Set(['opening','core','premium','add_on']);
+const ROUTES=new Set(['retail','direct_b2b','distributor_dealer','mixed']);
 
 function competitiveOfferings(evidenceRows=[],productRows=[]){
   const grouped=new Map(),seen=new Set();
@@ -59,7 +60,22 @@ export default async function handler(req,res){
       const offerings=competitiveOfferings(evidenceRows,productRows);
       return res.status(200).json({version:'9.8.3',opportunities:rows.map(row=>({...row,competitive_offerings:offerings.get(String(row.organization_id))||[]}))});
     }
+    if(req.method==='DELETE'){
+      const id=String(req.query?.id||req.body?.id||'').trim();if(!id)return res.status(400).json({error:'Opportunity id is required'});
+      const removed=(await sql`delete from opportunity_workspaces where id=${id} and manufacturer_id=${tenant.tenant_id} returning id`)[0];if(!removed)return res.status(404).json({error:'Opportunity was not found for this tenant'});
+      return res.status(200).json({removed:true,id:removed.id,account_and_evidence_preserved:true});
+    }
     if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
+    if(req.body?.action==='create'){
+      const organizationId=String(req.body?.organization_id||'').trim(),route=clean(req.body?.route_to_market||'retail',40).toLowerCase(),productIds=[...new Set((req.body?.product_ids||[]).map(String).filter(Boolean))];
+      if(!organizationId)return res.status(400).json({error:'Choose a target account'});if(!ROUTES.has(route))return res.status(400).json({error:'Choose a supported route to market'});if(!productIds.length||productIds.length>100)return res.status(400).json({error:'Select between 1 and 100 portfolio products'});
+      const organization=(await sql`select * from retail_organizations where id=${organizationId} and active=true limit 1`)[0];if(!organization)return res.status(404).json({error:'Target account was not found'});
+      const [catalog,variants]=await Promise.all([sql`select p.id,p.name product_name,p.product_family,p.category,b.name brand_name from products p left join brands b on b.id=p.brand_id where p.manufacturer_id=${tenant.tenant_id} and p.active=true`,sql`select pv.* from product_variants pv join products p on p.id=pv.product_id where p.manufacturer_id=${tenant.tenant_id} and p.active=true and pv.active=true`]);
+      const selected=catalog.filter(p=>productIds.includes(String(p.id)));if(selected.length!==productIds.length)return res.status(404).json({error:'One or more portfolio products were not found'});
+      const assortment=selected.map(p=>{const variant=variants.find(v=>String(v.product_id)===String(p.id))||{};return {product_id:String(p.id),product_name:p.product_name,brand_name:p.brand_name||'',sku:variant.sku||variant.variant_name||'',role:'core',notes:'',modeled_contribution:0}}),key=[...productIds].sort().join('|'),scenario={model:'MANUAL_TARGET_ACCOUNT',account:{organization_id:organization.id,name:organization.name,domain:organization.domain||'',organization_type:organization.organization_type||'',categories:organization.categories||[],channels:organization.channel_codes||[],fit_score:0,fit_reason:'Manually added target account; research is required before qualification',evidence_status:'INSUFFICIENT',evidence_count:0,base_manufacturer_revenue:0,evidence_backed_manufacturer_revenue:0,product_contributions:assortment},proposed_assortment:assortment,recommended_sku:assortment[0]||null,generated_at:new Date().toISOString()};
+      const row=(await sql`insert into opportunity_workspaces(manufacturer_id,organization_id,account_id,route_to_market,product_set_key,product_ids,status,priority,next_action,scenario,updated_at) values(${tenant.tenant_id},${organization.id},(select id from accounts where organization_id=${organization.id} limit 1),${route},${key},${sql.json(productIds)},'research_required','medium','Research the account assortment and buyers',${sql.json(scenario)},now()) on conflict(manufacturer_id,organization_id,route_to_market,product_set_key) do update set updated_at=now() returning *`)[0];
+      return res.status(201).json({opportunity:row,created_or_reused:true});
+    }
     const id=String(req.body?.id||'').trim();if(!id)return res.status(400).json({error:'Opportunity id is required'});
     const existing=(await sql`select * from opportunity_workspaces where id=${id} and manufacturer_id=${tenant.tenant_id} limit 1`)[0];
     if(!existing)return res.status(404).json({error:'Opportunity was not found for this tenant'});
