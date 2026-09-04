@@ -21,6 +21,15 @@ test('market report email normalizes and limits recipient addresses',()=>{
   assert.equal(reportRecipients(Array.from({length:20},(_,i)=>`x${i}@example.com`).join(',')).length,10);
 });
 
+test('market analysis output removes markdown and decorative separator symbols',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/function cleanReportNarrative/);
+  assert.match(source,/replace\(\/\\\*\\\*\|__\|`\/g,''\)/);
+  assert.match(source,/annual units per location per SKU/);
+  assert.doesNotMatch(source,/Launchpad36 Market Analysis —/);
+  assert.doesNotMatch(source,/Generated \$\{esc\(new Date\(\)\.toLocaleString\(\)\)\} ·/);
+});
+
 test('retail distributor seed contains 50 unique, categorized, sourceable accounts',()=>{
   assert.equal(RETAIL_DISTRIBUTORS.length,50);
   assert.equal(new Set(RETAIL_DISTRIBUTORS.map(x=>x.name.toLowerCase())).size,50);
