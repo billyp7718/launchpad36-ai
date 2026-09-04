@@ -11,7 +11,7 @@ import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refr
 import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
-import { normalizeOpenAIProducts, normalizeOpenAIResearch, responseOutputText, responseWebSources } from '../api/_openai-research.js';
+import { normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
@@ -386,4 +386,17 @@ test('account information can be edited without replacing its organization id',a
   const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/account-universe.js',import.meta.url),'utf8')]);
   assert.match(ui,/openEditAccount/);assert.match(ui,/saveAccountEdits/);assert.match(ui,/method:'PATCH'/);assert.match(ui,/Corrections keep the existing account ID/);
   assert.match(apiSource,/req\.method==='PATCH'/);assert.match(apiSource,/where id=\$\{id\} and active=true returning \*/);assert.match(apiSource,/headquarters=\$\{/);
+});
+
+test('weekly retailer discovery retains only attributable candidates and deduplicates domains',()=>{
+  const source='https://www.example-retailer.com/about';
+  const payload={output:[{type:'web_search_call',action:{sources:[{url:source,title:'About Example Retailer'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({status:'FOUND',search_summary:'One candidate',retailers:[{name:'Example Retailer',official_domain:'example-retailer.com',organization_type:'retailer',channels:['specialty retail'],categories:['Consumer Electronics'],coverage:'National',region:'US',headquarters:'Austin, Texas',footprint:40,ecommerce:true,source_url:source,source_title:'About',evidence_quote:'Specialty consumer electronics retailer',confidence:82},{name:'Duplicate Banner',official_domain:'example-retailer.com',organization_type:'retailer',channels:[],categories:[],coverage:'',region:'',headquarters:'',footprint:0,ecommerce:true,source_url:source,source_title:'About',evidence_quote:'Retailer',confidence:60}]})}]}]};
+  const result=normalizeOpenAIRetailers(payload);assert.equal(result.status,'SUCCESS');assert.equal(result.retailers.length,1);assert.equal(result.retailers[0].verification_status,'DISCOVERY_CANDIDATE');assert.equal(result.retailers[0].headquarters,'Austin, Texas');
+});
+
+test('retailer discovery agent is attached to the existing weekly Vercel job',async()=>{
+  const [agent,weekly,ui,status,config]=await Promise.all([readFile(new URL('../api/retailer-discovery-agent.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../vercel.json',import.meta.url),'utf8')]);
+  assert.match(agent,/searchOpenAIRetailers/);assert.match(agent,/DISCOVERY_CANDIDATE/);assert.match(agent,/runLivingIntelligencePipeline/);assert.match(agent,/where active=true and \(lower\(regexp_replace\(domain/);
+  assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(ui,/Discover New Retailers/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
+  const crons=JSON.parse(config).crons;assert.equal(crons.length,2);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));
 });

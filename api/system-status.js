@@ -151,6 +151,18 @@ export default async function handler(req, res) {
       { last_run: lastRefresh }
     ));
 
+    let retailerDiscovery = null;
+    if (present.has('refresh_runs')) {
+      const rows = await sql`select job_type,status,accounts_processed,started_at,finished_at,errors from refresh_runs where job_type='weekly-retailer-discovery' order by started_at desc limit 1`;
+      retailerDiscovery = rows[0] || null;
+    }
+    components.push(component(
+      'Retailer Discovery',
+      !openaiConfigured ? 'NOT_CONFIGURED' : retailerDiscovery?.status === 'failed' ? 'DEGRADED' : retailerDiscovery ? 'WORKING' : 'CONFIGURED',
+      !openaiConfigured ? 'OPENAI_API_KEY is required' : retailerDiscovery ? `Last run: ${retailerDiscovery.status}; ${retailerDiscovery.accounts_processed || 0} account(s) added or enriched` : 'Weekly Monday discovery is configured and awaiting its first run',
+      { last_run: retailerDiscovery, schedule: 'Mondays at 13:00 UTC' }
+    ));
+
     const blocking = components.some(item => ['FAILED', 'NOT_CONFIGURED'].includes(item.status));
     const proven = components.every(item => ['WORKING', 'READY', 'CONFIGURED'].includes(item.status));
     return res.status(200).json({
