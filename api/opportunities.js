@@ -7,6 +7,18 @@ const ASSORTMENT_ROLES=new Set(['opening','core','premium','add_on']);
 const ROUTES=new Set(['retail','direct_b2b','distributor_dealer','mixed']);
 const money=value=>Math.round((Number(value)||0)*100)/100;
 const monthlyUnits=value=>Math.min(1000000,Math.max(0,Math.round(Number(value)||0)));
+const boundedMoney=value=>Math.min(1000000000000,Math.max(0,money(value)));
+
+function revenueValues(scenario,base){
+  const low=Math.max(0,Number(scenario?.assumptions?.low_multiplier)||.65),high=Math.max(1,Number(scenario?.assumptions?.high_multiplier)||1.35),evidence=scenario?.account?.evidence_status==='VERIFIED';
+  return {base_manufacturer_revenue:base,low_manufacturer_revenue:money(base*low),high_manufacturer_revenue:money(base*high),evidence_backed_manufacturer_revenue:evidence?base:0};
+}
+
+function accountAdjustment(input={},scenario={}){
+  const previous=scenario.account_adjustment||{},raw=input.manual_annual_revenue,hasManual=raw!==null&&raw!==undefined&&String(raw).trim()!=='';
+  const modelGenerated=boundedMoney(scenario?.volume_model?.annual_manufacturer_revenue??previous.model_generated_annual_revenue??scenario?.account?.base_manufacturer_revenue);
+  return {include_in_report:input.include_in_report!==false,manual_annual_revenue:hasManual?boundedMoney(raw):null,model_generated_annual_revenue:modelGenerated,rationale:clean(input.rationale,800),notes:clean(input.notes,1200),updated_at:new Date().toISOString()};
+}
 
 function competitiveOfferings(evidenceRows=[],productRows=[]){
   const grouped=new Map(),seen=new Set();
@@ -85,7 +97,8 @@ export default async function handler(req,res){
     const requested=clean(req.body?.status||existing.status,40).toLowerCase();if(!STATUSES.has(requested))return res.status(400).json({error:'Unsupported opportunity status'});
     if(requested==='approved'&&existing.scenario?.account?.evidence_status!=='VERIFIED')return res.status(409).json({error:'Verify relevant account assortment evidence before approving this opportunity'});
     let scenario=existing.scenario||{};
-    if(req.body?.proposed_assortment!==undefined){const assortment=await proposedAssortment(sql,tenant.tenant_id,req.body.proposed_assortment),annualRevenue=money(assortment.reduce((sum,item)=>sum+item.annual_revenue,0)),account={...(scenario.account||{}),base_manufacturer_revenue:annualRevenue,low_manufacturer_revenue:money(annualRevenue*.65),high_manufacturer_revenue:money(annualRevenue*1.35),product_contributions:assortment};scenario={...scenario,account,proposed_assortment:assortment,recommended_sku:assortment[0]||null,volume_model:{basis:'account_sku_monthly_units_x_dealer_cost',annual_manufacturer_revenue:annualRevenue},assortment_updated_at:new Date().toISOString()}}
+    if(req.body?.proposed_assortment!==undefined){const assortment=await proposedAssortment(sql,tenant.tenant_id,req.body.proposed_assortment),annualRevenue=money(assortment.reduce((sum,item)=>sum+item.annual_revenue,0)),priorAdjustment=scenario.account_adjustment||null,adjustment=priorAdjustment?{...priorAdjustment,model_generated_annual_revenue:annualRevenue}:null,appliedRevenue=adjustment?.manual_annual_revenue??annualRevenue,account={...(scenario.account||{}),...revenueValues(scenario,appliedRevenue),product_contributions:assortment};scenario={...scenario,account,proposed_assortment:assortment,recommended_sku:assortment[0]||null,volume_model:{basis:'account_sku_monthly_units_x_dealer_cost',annual_manufacturer_revenue:annualRevenue},...(adjustment?{account_adjustment:adjustment}:{}),assortment_updated_at:new Date().toISOString()}}
+    if(req.body?.account_adjustment!==undefined){const adjustment=accountAdjustment(req.body.account_adjustment,scenario),appliedRevenue=adjustment.manual_annual_revenue??adjustment.model_generated_annual_revenue,account={...(scenario.account||{}),...revenueValues(scenario,appliedRevenue)};scenario={...scenario,account,account_adjustment:adjustment}}
     if(req.body?.assigned_buyer_id!==undefined){const buyerId=String(req.body.assigned_buyer_id||'').trim();let assignedBuyer=null;if(buyerId){assignedBuyer=(await sql`select b.id,b.name,b.title,b.email,b.phone,b.linkedin,b.category,b.confidence,b.verification_status,b.source_url from buyers b join accounts a on a.id=b.account_id where b.id=${buyerId} and a.organization_id=${existing.organization_id} limit 1`)[0];if(!assignedBuyer)throw Object.assign(new Error('Selected buyer does not belong to this opportunity account'),{status:400})}scenario={...scenario,assigned_buyer:assignedBuyer,buyer_assigned_at:new Date().toISOString()}}
     const row=(await sql`update opportunity_workspaces set status=${requested},priority=${clean(req.body?.priority||existing.priority,30)},owner=${clean(req.body?.owner??existing.owner,160)},next_action=${clean(req.body?.next_action??existing.next_action,500)},scenario=${sql.json(scenario)},approved_at=${requested==='approved'?new Date().toISOString():existing.approved_at},updated_at=now() where id=${id} and manufacturer_id=${tenant.tenant_id} returning *`)[0];
     return res.status(200).json({opportunity:row});
