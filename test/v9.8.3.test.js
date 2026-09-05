@@ -325,7 +325,7 @@ test('market intelligence UI supports multiple products, channel models and SKU 
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/class="moProduct" type="checkbox"/);assert.match(source,/Select All/);
   for(const route of ['retail','direct_b2b','distributor_dealer','mixed'])assert.match(source,new RegExp(`value="${route}"`));
-  assert.match(source,/Low Scenario/);assert.match(source,/Base Scenario/);assert.match(source,/High Scenario/);assert.match(source,/Review Scenario/);assert.match(source,/api\/market-opportunity/);
+  assert.match(source,/Low Scenario/);assert.match(source,/Base Scenario/);assert.match(source,/High Scenario/);assert.match(source,/Edit Account/);assert.match(source,/api\/market-opportunity/);
 });
 
 test('market intelligence replaces the redundant find me revenue interface',async()=>{
@@ -533,7 +533,22 @@ test('account assortment volume uses catalog dealer cost to calculate annual rev
 test('opportunity workspace can add and remove targets without deleting account intelligence',async()=>{
   const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')]);
   assert.doesNotMatch(ui,/Trust boundary/);
-  for(const marker of ['Add Target Account','openAddTargetAccount','createTargetAccount','Remove Target','removeTargetAccount','account_and_evidence_preserved'])assert.match(`${ui}\n${apiSource}`,new RegExp(marker));
+  for(const marker of ['Add Target Account','openAddTargetAccount','createTargetAccount','Remove This Opportunity','removeTargetAccount','account_and_evidence_preserved'])assert.match(`${ui}\n${apiSource}`,new RegExp(marker));
   assert.match(apiSource,/req\.body\?\.action==='create'/);assert.match(apiSource,/req\.method==='DELETE'/);assert.match(apiSource,/delete from opportunity_workspaces/);
   assert.doesNotMatch(apiSource,/delete from retail_organizations/);assert.doesNotMatch(apiSource,/delete from commercial_evidence/);
+});
+
+test('market analysis supports persistent account adjustments and complete editable exports',async()=>{
+  const [ui,opportunitiesApi,marketApi]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8')]);
+  for(const marker of ['Adjusted annual manufacturer revenue','Include in exported analysis','Opportunity rationale','Additional account input','Save Account Adjustment','Edit SKU Mix & Monthly Volume','Preview & Export Full Analysis','Download CSV','Account-Level Detail'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['account_adjustment','manual_annual_revenue','include_in_report','model_generated_annual_revenue'])assert.match(opportunitiesApi,new RegExp(marker));
+  assert.match(marketApi,/retainAccountEdits/);assert.match(marketApi,/existingByOrganization/);assert.match(marketApi,/previousScenario\.account_adjustment/);
+  assert.match(ui,/marketAccounts\(true\)/);assert.match(ui,/assigned_buyer/);assert.match(ui,/competitive_offerings/);
+});
+
+test('opportunities are grouped by account with brand and analysis-date tabs',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  for(const marker of ['opportunityBrands','opportunityDate','opportunityLabel','opportunityTabs','Account Opportunities','Search account, brand, product, or owner','All statuses','All routes'])assert.match(ui,new RegExp(marker,'i'));
+  assert.match(ui,/state\.workspaces\.filter\(item=>String\(item\.organization_id\)===String\(w\.organization_id\)\)/);
+  assert.match(ui,/role="tab"/);assert.match(ui,/aria-selected=/);
 });
