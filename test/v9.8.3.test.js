@@ -562,7 +562,7 @@ test('product intelligence supports multi-product comparison and exact store evi
 
 test('account evidence and website catalogs have explicit review and approval flows',async()=>{
   const [ui,catalogWebsite,catalogImport]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/catalog-website.js',import.meta.url),'utf8'),readFile(new URL('../api/catalog-import.js',import.meta.url),'utf8')]);
-  for(const marker of ['Review & Approve','openAccountDataReview','openEvidenceReview','websiteCandidate','Extract Selected Products','extractSelectedWebsiteProducts','website_discovery'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Review & Approve','openAccountDataReview','openEvidenceReview','Approve Account Data as Verified','approveAllAccountEvidence','No structured products to approve','websiteCandidate','Extract Selected Products','extractSelectedWebsiteProducts','website_discovery'])assert.match(ui,new RegExp(marker));
   for(const marker of ["action==='extract'",'extractCatalogPages','CATALOG_PAGE_SCHEMA','likelyProductPage','requires_explicit_approval'])assert.match(catalogWebsite,new RegExp(marker));
   assert.match(catalogImport,/approved!==true/);assert.match(catalogImport,/CATALOG_APPROVAL_REQUIRED/);assert.match(catalogImport,/review_token/);
 });
