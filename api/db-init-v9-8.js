@@ -189,6 +189,14 @@ alter table retail_observations add column if not exists verification_status tex
 alter table opportunity_scores add column if not exists manufacturer_id uuid references manufacturers(id) on delete cascade;
 create index if not exists opportunity_scores_tenant_idx on opportunity_scores(manufacturer_id,scored_at desc);
 
+create table if not exists market_opportunity_scenarios (
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ name text not null, route_to_market text not null default 'retail', product_ids jsonb not null default '[]'::jsonb,
+ assumptions jsonb not null default '{}'::jsonb, result_snapshot jsonb not null default '{}'::jsonb,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create index if not exists market_opportunity_scenarios_tenant_idx on market_opportunity_scenarios(manufacturer_id,updated_at desc);
+
 create table if not exists opportunity_workspaces (
  id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
  organization_id uuid not null references retail_organizations(id) on delete cascade, account_id uuid references accounts(id) on delete set null,

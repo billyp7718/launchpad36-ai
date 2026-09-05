@@ -436,7 +436,7 @@ test('revenue APIs join evidence source URLs through the production schema',asyn
   for(const source of sources){
     assert.match(source,/join evidence_sources es on es\.id=ce\.source_id/);
     assert.match(source,/es\.source_url/);
-    assert.doesNotMatch(source,/select organization_id,payload,source_url,observed_at/);
+    assert.doesNotMatch(source,/select ce\.organization_id,ce\.payload,ce\.source_url/);
   }
 });
 
@@ -562,7 +562,30 @@ test('product intelligence supports multi-product comparison and exact store evi
 
 test('account evidence and website catalogs have explicit review and approval flows',async()=>{
   const [ui,catalogWebsite,catalogImport]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/catalog-website.js',import.meta.url),'utf8'),readFile(new URL('../api/catalog-import.js',import.meta.url),'utf8')]);
-  for(const marker of ['Review & Approve','openAccountDataReview','openEvidenceReview','Approve Account Data as Verified','approveAllAccountEvidence','No structured products to approve','websiteCandidate','Extract Selected Products','extractSelectedWebsiteProducts','website_discovery'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Review & Approve','openAccountDataReview','openEvidenceReview','Approve Account Data as Verified','approveAllAccountEvidence','Other account research','websiteCandidate','Extract Selected Products','extractSelectedWebsiteProducts','website_discovery'])assert.match(ui,new RegExp(marker));
   for(const marker of ["action==='extract'",'extractCatalogPages','CATALOG_PAGE_SCHEMA','likelyProductPage','requires_explicit_approval'])assert.match(catalogWebsite,new RegExp(marker));
   assert.match(catalogImport,/approved!==true/);assert.match(catalogImport,/CATALOG_APPROVAL_REQUIRED/);assert.match(catalogImport,/review_token/);
+});
+
+test('evidence approval reconciles matching opportunities and competitive offerings',async()=>{
+  const [review,reconcile]=await Promise.all([readFile(new URL('../api/evidence-review.js',import.meta.url),'utf8'),readFile(new URL('../api/_opportunity-evidence.js',import.meta.url),'utf8')]);
+  for(const marker of ['reconcileOpportunityEvidenceForOrganization','syncCompetitiveOfferingVerification'])assert.match(review,new RegExp(marker));
+  for(const marker of ['evaluateProductAccountFit','evidence_backed_manufacturer_revenue','research_required','competitive_products'])assert.match(reconcile,new RegExp(marker));
+});
+
+test('catalog review is editable and enforces the visible extraction limit',async()=>{
+  const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/catalog-website.js',import.meta.url),'utf8')]);
+  for(const marker of ['updateCatalogReviewRow','removeCatalogReviewRow','Validate & Import','MAX_CATALOG_PAGES','Extraction complete'])assert.match(ui,new RegExp(marker));
+  assert.match(apiSource,/candidates\.length>20/);assert.doesNotMatch(apiSource,/\.slice\(0,20\)/);
+});
+
+test('brands and complete market scenarios can be edited and saved',async()=>{
+  const [ui,brands,scenarios,status]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/brands.js',import.meta.url),'utf8'),readFile(new URL('../api/market-scenarios.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8')]);
+  for(const marker of ['openBrand','saveBrand','Saved Scenarios','Save Current Analysis','loadMarketScenario','deleteMarketScenario'])assert.match(ui,new RegExp(marker));
+  assert.match(brands,/req\.method==='PATCH'/);for(const marker of ['result_snapshot','manufacturer_id','market_opportunity_scenarios'])assert.match(scenarios,new RegExp(marker));assert.match(status,/market_opportunity_scenarios/);
+});
+
+test('saved comparable product context is returned with account offerings',async()=>{
+  const [research,productsApi,ui]=await Promise.all([readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../api/competitive-products.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  assert.match(research,/comparison_product_ids:comparisonProductIds/);assert.match(productsApi,/comparison_product_ids/);assert.match(ui,/saved portfolio-comparison link/);
 });
