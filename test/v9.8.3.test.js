@@ -15,6 +15,7 @@ import { normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetail
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
+import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
 
 test('market report email normalizes and limits recipient addresses',()=>{
   assert.deepEqual(reportRecipients('A@Example.com; b@example.com, a@example.com'),['a@example.com','b@example.com']);
@@ -509,7 +510,7 @@ test('opportunity details support editable proposed assortments and account comp
     readFile(new URL('../index.html',import.meta.url),'utf8'),
     readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')
   ]);
-  for(const marker of ['Account Assortment Comparison','Edit Proposed Assortment','Save Proposed Assortment','addAssortmentProduct','removeAssortmentProduct','All Source-Backed Account Offerings','Research Account Products'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Account Assortment Comparison','Edit SKU Mix','Save & Confirm SKU Mix','addAssortmentProduct','removeAssortmentProduct','All Source-Backed Account Offerings','Research Account Products'])assert.match(ui,new RegExp(marker));
   assert.match(apiSource,/proposed_assortment/);assert.match(apiSource,/assortment_updated_at/);assert.match(apiSource,/manufacturer_id=\$\{tenant\.tenant_id\}/);
   assert.match(apiSource,/from commercial_evidence ce join evidence_sources es/);assert.match(apiSource,/from competitive_products cp join accounts a/);
   assert.match(apiSource,/competitive_offerings/);assert.match(apiSource,/b\.email/);assert.match(apiSource,/b\.phone/);assert.match(apiSource,/b\.linkedin/);
@@ -522,12 +523,23 @@ test('account assortment volume uses catalog dealer cost to calculate annual rev
     readFile(new URL('../index.html',import.meta.url),'utf8'),
     readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')
   ]);
-  for(const marker of ['Monthly Sales Volume','Dealer Cost','Annual Revenue','assortmentMonthly','expected monthly unit sales'])assert.match(ui,new RegExp(marker,'i'));
-  assert.match(ui,/monthly units × catalog dealer cost × 12/i);
-  assert.match(apiSource,/pv\.wholesale/);
-  for(const marker of ['monthly_sales_volume','dealer_cost','annual_revenue','account_sku_monthly_units_x_dealer_cost'])assert.match(apiSource,new RegExp(marker));
+  for(const marker of ['Monthly Units / Store','Store / location count','Retail Price','Dealer Cost','Annual Revenue','assortmentMonthly','expected monthly unit sales per store'])assert.match(ui,new RegExp(marker,'i'));
+  assert.match(ui,/monthly units × store count × catalog dealer cost × 12/i);
+  assert.match(apiSource,/pv\.wholesale/);assert.match(apiSource,/pv\.msrp/);assert.match(apiSource,/pv\.map/);
+  for(const marker of ['monthly_sales_volume','dealer_cost','retail_price','annual_revenue','account_sku_monthly_units_x_dealer_cost_x_store_count'])assert.match(apiSource,new RegExp(marker));
   assert.match(apiSource,/modeled_contribution:dealerCost/);
-  assert.match(apiSource,/dealerCost\*volume\*12/);
+  assert.equal(calculateSkuAnnualRevenue({dealer_cost:40,monthly_sales_volume:5,store_count:10}),24000);
+  assert.equal(calculateSkuAnnualRevenue({dealer_cost:40,monthly_sales_volume:0,store_count:10}),0);
+  assert.match(apiSource,/calculateSkuAnnualRevenue/);
+});
+
+test('deep market analysis queues the top 25 accounts and saves editable channel status',async()=>{
+  const [ui,opportunitiesApi,buyersApi,researchApi]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/buyers.js',import.meta.url),'utf8'),readFile(new URL('../api/account-research.js',import.meta.url),'utf8')]);
+  for(const marker of ['Run Deep Market Analysis','runDeepMarketAnalysis','comparison_product_ids:ids','Each completed account is saved automatically','Save Comparison Status','comparisonInStore','comparisonOnline','openBuyerEditor','Save Buyer','productBatches'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/slice\(0,25\)/);
+  for(const marker of ['comparison_status','manual_account_review','in_store','online','store_count'])assert.match(opportunitiesApi,new RegExp(marker));
+  assert.match(buyersApi,/req\.method==='PATCH'/);
+  assert.match(researchApi,/existingComparisonIds/);assert.match(researchApi,/linkedProductIds/);
 });
 
 test('opportunity workspace can add and remove targets without deleting account intelligence',async()=>{

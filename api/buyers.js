@@ -1,5 +1,6 @@
 import { db, upsertBuyer } from './_db.js';
 import { requireAdmin } from './_auth.js';
+const clean=(value,max=300)=>String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 export default async function handler(req,res){
  try{
   if(!requireAdmin(req,res)) return;
@@ -15,6 +16,15 @@ export default async function handler(req,res){
     for(const b of body) out.push(await upsertBuyer(b||{}));
     return res.status(200).json({buyers:out});
   }
+  if(req.method==='PATCH'){
+    const sql=db(),id=String(req.body?.id||'').trim(),name=clean(req.body?.name,160),title=clean(req.body?.title,180),email=clean(req.body?.email,200),linkedin=clean(req.body?.linkedin,500);
+    if(!id||!name||!title)return res.status(400).json({error:'Buyer id, name, and title are required'});
+    if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:'Enter a valid buyer email address'});
+    if(linkedin&&!/^https?:\/\/(?:[a-z]+\.)?linkedin\.com\//i.test(linkedin))return res.status(400).json({error:'Enter a valid LinkedIn URL'});
+    const buyer=(await sql`update buyers set name=${name},title=${title},category=${clean(req.body?.category,180)},email=${email},phone=${clean(req.body?.phone,80)},linkedin=${linkedin},updated_at=now() where id=${id} returning *`)[0];
+    if(!buyer)return res.status(404).json({error:'Buyer was not found'});
+    return res.status(200).json({buyer});
+  }
   return res.status(405).json({error:'Method not allowed'});
- }catch(e){return res.status(500).json({error:e.message})}
+ }catch(e){console.error('buyer operation failed',{message:e?.message||String(e)});return res.status(500).json({error:'Buyer operation could not be completed'})}
 }

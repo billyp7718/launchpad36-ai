@@ -7,7 +7,9 @@ const ASSORTMENT_ROLES=new Set(['opening','core','premium','add_on']);
 const ROUTES=new Set(['retail','direct_b2b','distributor_dealer','mixed']);
 const money=value=>Math.round((Number(value)||0)*100)/100;
 const monthlyUnits=value=>Math.min(1000000,Math.max(0,Math.round(Number(value)||0)));
+const locationCount=value=>Math.min(100000,Math.max(1,Math.round(Number(value)||1)));
 const boundedMoney=value=>Math.min(1000000000000,Math.max(0,money(value)));
+export const calculateSkuAnnualRevenue=({dealer_cost=0,monthly_sales_volume=0,store_count=1}={})=>money(Math.max(0,Number(dealer_cost)||0)*monthlyUnits(monthly_sales_volume)*12*locationCount(store_count));
 
 function revenueValues(scenario,base){
   const low=Math.max(0,Number(scenario?.assumptions?.low_multiplier)||.65),high=Math.max(1,Number(scenario?.assumptions?.high_multiplier)||1.35),evidence=scenario?.account?.evidence_status==='VERIFIED';
@@ -28,7 +30,7 @@ function competitiveOfferings(evidenceRows=[],productRows=[]){
     const key=`${organizationId}|${brand}|${name}|${sourceUrl}`.toLowerCase();if(seen.has(key))return;seen.add(key);
     const rows=grouped.get(String(organizationId))||[];
     let researchContext={};try{researchContext=typeof item.raw_text==='string'?JSON.parse(item.raw_text):item.research_context||{}}catch{}
-    if(rows.length<100)rows.push({name,brand,category:clean(item.category,140),price_text:clean(item.price_text,80),availability:clean(item.availability,180),source_url:sourceUrl,verification_status:clean(item.verification_status||'REVIEW_REQUIRED',40),observed_at:item.observed_at||null,comparison_product_ids:Array.isArray(researchContext.comparison_product_ids)?researchContext.comparison_product_ids.map(String):[]});
+    if(rows.length<100)rows.push({name,brand,category:clean(item.category,140),price_text:clean(item.price_text,80),availability:clean(item.availability,180),source_url:sourceUrl,verification_status:clean(item.verification_status||'REVIEW_REQUIRED',40),observed_at:item.observed_at||null,purchase_channel:clean(item.purchase_channel||researchContext.purchase_channel||'UNKNOWN',40),store_verification:clean(item.store_verification||researchContext.store_verification||'NOT_REQUESTED',40),comparison_product_ids:Array.isArray(researchContext.comparison_product_ids)?researchContext.comparison_product_ids.map(String):[]});
     grouped.set(String(organizationId),rows);
   };
   for(const row of evidenceRows)for(const item of Array.isArray(row.payload?.offerings)?row.payload.offerings:[])add(row.organization_id,{...item,source_url:row.source_url,verification_status:row.verification_status,observed_at:row.observed_at});
@@ -36,16 +38,26 @@ function competitiveOfferings(evidenceRows=[],productRows=[]){
   return grouped;
 }
 
-async function proposedAssortment(sql,tenantId,input=[]){
+async function proposedAssortment(sql,tenantId,input=[],storeCount=1){
   if(!Array.isArray(input)||input.length>100)throw Object.assign(new Error('Proposed assortment must contain no more than 100 products'),{status:400});
-  const catalog=await sql`select p.id product_id,p.name product_name,b.name brand_name,pv.sku,pv.variant_name,pv.wholesale from products p left join brands b on b.id=p.brand_id left join product_variants pv on pv.product_id=p.id and pv.active=true where p.manufacturer_id=${tenantId} and p.active=true`;
+  const catalog=await sql`select p.id product_id,p.name product_name,b.name brand_name,pv.sku,pv.variant_name,pv.wholesale,pv.msrp,pv.map from products p left join brands b on b.id=p.brand_id left join product_variants pv on pv.product_id=p.id and pv.active=true where p.manufacturer_id=${tenantId} and p.active=true`;
   const byProduct=new Map();for(const row of catalog){const key=String(row.product_id),current=byProduct.get(key)||[];current.push(row);byProduct.set(key,current)}
   return input.map((item,index)=>{
     const matches=byProduct.get(String(item?.product_id))||[];if(!matches.length)throw Object.assign(new Error(`Assortment item ${index+1} is not in this tenant's catalog`),{status:400});
     const requestedSku=clean(item?.sku,160),matched=requestedSku?matches.find(x=>String(x.sku||x.variant_name||'')===requestedSku):matches[0];if(!matched)throw Object.assign(new Error(`SKU ${requestedSku} is not active in this tenant's catalog`),{status:400});
-    const dealerCost=money(matched.wholesale),volume=monthlyUnits(item?.monthly_sales_volume),annualRevenue=money(dealerCost*volume*12);
-    return {product_id:String(matched.product_id),product_name:matched.product_name,brand_name:matched.brand_name||'',sku:requestedSku||matched.sku||matched.variant_name||'',role:ASSORTMENT_ROLES.has(item?.role)?item.role:'core',monthly_sales_volume:volume,dealer_cost:dealerCost,annual_revenue:annualRevenue,notes:clean(item?.notes,300),modeled_contribution:dealerCost};
+    const dealerCost=money(matched.wholesale),retailPrice=money(matched.map||matched.msrp),volume=monthlyUnits(item?.monthly_sales_volume),annualRevenue=calculateSkuAnnualRevenue({dealer_cost:dealerCost,monthly_sales_volume:volume,store_count:storeCount});
+    return {product_id:String(matched.product_id),product_name:matched.product_name,brand_name:matched.brand_name||'',sku:requestedSku||matched.sku||matched.variant_name||'',role:ASSORTMENT_ROLES.has(item?.role)?item.role:'core',monthly_sales_volume:volume,dealer_cost:dealerCost,retail_price:retailPrice,annual_revenue:annualRevenue,notes:clean(item?.notes,300),modeled_contribution:dealerCost};
   });
+}
+
+function comparisonStatus(input={},allowedProductIds=[]){
+  if(!input||typeof input!=='object'||Array.isArray(input))throw Object.assign(new Error('Comparison status must be an object'),{status:400});
+  const allowed=new Set(allowedProductIds.map(String)),out={};
+  for(const [productId,value] of Object.entries(input)){
+    if(!allowed.has(String(productId))||!value||typeof value!=='object')continue;
+    out[String(productId)]={in_store:value.in_store===true,online:value.online===true,notes:clean(value.notes,300),confirmed_at:new Date().toISOString(),confirmation_source:'manual_account_review'};
+  }
+  return out;
 }
 
 export default async function handler(req,res){
@@ -60,7 +72,7 @@ export default async function handler(req,res){
         join retail_organizations ro on ro.id=ow.organization_id
         left join lateral (
           select count(*)::int buyer_count,
-            coalesce(json_agg(json_build_object('id',b.id,'name',b.name,'title',b.title,'email',b.email,'phone',b.phone,'linkedin',b.linkedin,'category',b.category,'confidence',b.confidence,'verification_status',b.verification_status,'source_url',b.source_url) order by b.updated_at desc),'[]'::json) buyers
+            coalesce(json_agg(json_build_object('id',b.id,'account_id',b.account_id,'name',b.name,'title',b.title,'email',b.email,'phone',b.phone,'linkedin',b.linkedin,'category',b.category,'confidence',b.confidence,'verification_status',b.verification_status,'source_url',b.source_url) order by b.updated_at desc),'[]'::json) buyers
           from accounts a join buyers b on b.account_id=a.id where a.organization_id=ow.organization_id
         ) buyer_summary on true
         where ow.manufacturer_id=${tenant.tenant_id}
@@ -88,7 +100,7 @@ export default async function handler(req,res){
       const organization=(await sql`select * from retail_organizations where id=${organizationId} and active=true limit 1`)[0];if(!organization)return res.status(404).json({error:'Target account was not found'});
       const [catalog,variants]=await Promise.all([sql`select p.id,p.name product_name,p.product_family,p.category,b.name brand_name from products p left join brands b on b.id=p.brand_id where p.manufacturer_id=${tenant.tenant_id} and p.active=true`,sql`select pv.* from product_variants pv join products p on p.id=pv.product_id where p.manufacturer_id=${tenant.tenant_id} and p.active=true and pv.active=true`]);
       const selected=catalog.filter(p=>productIds.includes(String(p.id)));if(selected.length!==productIds.length)return res.status(404).json({error:'One or more portfolio products were not found'});
-      const assortment=selected.map(p=>{const variant=variants.find(v=>String(v.product_id)===String(p.id))||{},dealerCost=money(variant.wholesale);return {product_id:String(p.id),product_name:p.product_name,brand_name:p.brand_name||'',sku:variant.sku||variant.variant_name||'',role:'core',monthly_sales_volume:0,dealer_cost:dealerCost,annual_revenue:0,notes:'',modeled_contribution:dealerCost}}),key=[...productIds].sort().join('|'),scenario={model:'MANUAL_TARGET_ACCOUNT',account:{organization_id:organization.id,name:organization.name,domain:organization.domain||'',organization_type:organization.organization_type||'',categories:organization.categories||[],channels:organization.channel_codes||[],fit_score:0,fit_reason:'Manually added target account; research is required before qualification',evidence_status:'INSUFFICIENT',evidence_count:0,base_manufacturer_revenue:0,evidence_backed_manufacturer_revenue:0,product_contributions:assortment},proposed_assortment:assortment,recommended_sku:assortment[0]||null,generated_at:new Date().toISOString()};
+      const assortment=selected.map(p=>{const variant=variants.find(v=>String(v.product_id)===String(p.id))||{},dealerCost=money(variant.wholesale),retailPrice=money(variant.map||variant.msrp);return {product_id:String(p.id),product_name:p.product_name,brand_name:p.brand_name||'',sku:variant.sku||variant.variant_name||'',role:'core',monthly_sales_volume:0,dealer_cost:dealerCost,retail_price:retailPrice,annual_revenue:0,notes:'',modeled_contribution:dealerCost}}),key=[...productIds].sort().join('|'),scenario={model:'MANUAL_TARGET_ACCOUNT',account:{organization_id:organization.id,name:organization.name,domain:organization.domain||'',organization_type:organization.organization_type||'',categories:organization.categories||[],channels:organization.channel_codes||[],footprint:Number(organization.footprint)||1,fit_score:0,fit_reason:'Manually added target account; research is required before qualification',evidence_status:'INSUFFICIENT',evidence_count:0,base_manufacturer_revenue:0,evidence_backed_manufacturer_revenue:0,product_contributions:assortment},proposed_assortment:assortment,recommended_sku:assortment[0]||null,volume_model:{basis:'account_sku_monthly_units_x_dealer_cost_x_store_count',store_count:Math.max(1,Number(organization.footprint)||1),annual_manufacturer_revenue:0},generated_at:new Date().toISOString()};
       const row=(await sql`insert into opportunity_workspaces(manufacturer_id,organization_id,account_id,route_to_market,product_set_key,product_ids,status,priority,next_action,scenario,updated_at) values(${tenant.tenant_id},${organization.id},(select id from accounts where organization_id=${organization.id} limit 1),${route},${key},${sql.json(productIds)},'research_required','medium','Research the account assortment and buyers',${sql.json(scenario)},now()) on conflict(manufacturer_id,organization_id,route_to_market,product_set_key) do update set updated_at=now() returning *`)[0];
       return res.status(201).json({opportunity:row,created_or_reused:true});
     }
@@ -98,7 +110,8 @@ export default async function handler(req,res){
     const requested=clean(req.body?.status||existing.status,40).toLowerCase();if(!STATUSES.has(requested))return res.status(400).json({error:'Unsupported opportunity status'});
     if(requested==='approved'&&existing.scenario?.account?.evidence_status!=='VERIFIED')return res.status(409).json({error:'Verify relevant account assortment evidence before approving this opportunity'});
     let scenario=existing.scenario||{};
-    if(req.body?.proposed_assortment!==undefined){const assortment=await proposedAssortment(sql,tenant.tenant_id,req.body.proposed_assortment),annualRevenue=money(assortment.reduce((sum,item)=>sum+item.annual_revenue,0)),priorAdjustment=scenario.account_adjustment||null,adjustment=priorAdjustment?{...priorAdjustment,model_generated_annual_revenue:annualRevenue}:null,appliedRevenue=adjustment?.manual_annual_revenue??annualRevenue,account={...(scenario.account||{}),...revenueValues(scenario,appliedRevenue),product_contributions:assortment};scenario={...scenario,account,proposed_assortment:assortment,recommended_sku:assortment[0]||null,volume_model:{basis:'account_sku_monthly_units_x_dealer_cost',annual_manufacturer_revenue:annualRevenue},...(adjustment?{account_adjustment:adjustment}:{}),assortment_updated_at:new Date().toISOString()}}
+    if(req.body?.proposed_assortment!==undefined){const storeCount=locationCount(req.body?.store_count??scenario?.volume_model?.store_count??scenario?.account?.footprint??1),assortment=await proposedAssortment(sql,tenant.tenant_id,req.body.proposed_assortment,storeCount),annualRevenue=money(assortment.reduce((sum,item)=>sum+item.annual_revenue,0)),priorAdjustment=scenario.account_adjustment||null,adjustment=priorAdjustment?{...priorAdjustment,model_generated_annual_revenue:annualRevenue}:null,appliedRevenue=adjustment?.manual_annual_revenue??annualRevenue,account={...(scenario.account||{}),...revenueValues(scenario,appliedRevenue),product_contributions:assortment};scenario={...scenario,account,proposed_assortment:assortment,recommended_sku:assortment[0]||null,volume_model:{basis:'account_sku_monthly_units_x_dealer_cost_x_store_count',store_count:storeCount,annual_manufacturer_revenue:annualRevenue},...(adjustment?{account_adjustment:adjustment}:{}),assortment_updated_at:new Date().toISOString()}}
+    if(req.body?.comparison_status!==undefined){const allowed=[...(existing.product_ids||[]),...((scenario.proposed_assortment||[]).map(item=>item.product_id))];scenario={...scenario,comparison_status:comparisonStatus(req.body.comparison_status,allowed),comparison_status_updated_at:new Date().toISOString()}}
     if(req.body?.account_adjustment!==undefined){const adjustment=accountAdjustment(req.body.account_adjustment,scenario),appliedRevenue=adjustment.manual_annual_revenue??adjustment.model_generated_annual_revenue,account={...(scenario.account||{}),...revenueValues(scenario,appliedRevenue)};scenario={...scenario,account,account_adjustment:adjustment}}
     if(req.body?.assigned_buyer_id!==undefined){const buyerId=String(req.body.assigned_buyer_id||'').trim();let assignedBuyer=null;if(buyerId){assignedBuyer=(await sql`select b.id,b.name,b.title,b.email,b.phone,b.linkedin,b.category,b.confidence,b.verification_status,b.source_url from buyers b join accounts a on a.id=b.account_id where b.id=${buyerId} and a.organization_id=${existing.organization_id} limit 1`)[0];if(!assignedBuyer)throw Object.assign(new Error('Selected buyer does not belong to this opportunity account'),{status:400})}scenario={...scenario,assigned_buyer:assignedBuyer,buyer_assigned_at:new Date().toISOString()}}
     const row=(await sql`update opportunity_workspaces set status=${requested},priority=${clean(req.body?.priority||existing.priority,30)},owner=${clean(req.body?.owner??existing.owner,160)},next_action=${clean(req.body?.next_action??existing.next_action,500)},scenario=${sql.json(scenario)},approved_at=${requested==='approved'?new Date().toISOString():existing.approved_at},updated_at=now() where id=${id} and manufacturer_id=${tenant.tenant_id} returning *`)[0];
