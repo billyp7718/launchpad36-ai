@@ -10,7 +10,7 @@ export default async function handler(req,res){
   if(req.method==='PATCH'){
     const id=clean(req.body?.id,80),name=clean(req.body?.name,180);if(!id||!name)return res.status(400).json({error:'Account id and organization name are required'});
     const website=normalizePublicUrl(req.body?.source_url||req.body?.domain),domain=domainFromWebsite(req.body?.domain||website);
-    try{const row=(await sql`update retail_organizations set name=${name},domain=${domain},organization_type=${clean(req.body?.organization_type||'retailer',60)},channel_codes=${list(req.body?.channels)},categories=${list(req.body?.categories)},coverage=${clean(req.body?.coverage,120)},region=${clean(req.body?.region,120)},headquarters=${clean(req.body?.headquarters,180)},footprint=${Math.max(0,Number(req.body?.footprint)||0)},ecommerce=${Boolean(req.body?.ecommerce)},source_url=${website},updated_at=now() where id=${id} and active=true returning *`)[0];if(!row)return res.status(404).json({error:'Account not found'});return res.status(200).json({account:row})}catch(e){return res.status(500).json({error:e.message})}
+    try{const row=(await sql`update retail_organizations set name=${name},domain=${domain},organization_type=${clean(req.body?.organization_type||'retailer',60)},channel_codes=${list(req.body?.channels)},categories=${list(req.body?.categories)},coverage=${clean(req.body?.coverage,120)},region=${clean(req.body?.region,120)},headquarters=${clean(req.body?.headquarters,180)},footprint=${Math.max(0,Number(req.body?.footprint)||0)},ecommerce=${Boolean(req.body?.ecommerce)},source_url=${website},updated_at=now() where id=${id} and active=true returning *`)[0];if(!row)return res.status(404).json({error:'Account not found'});return res.status(200).json({account:row})}catch(e){console.error('account update failed',{message:e?.message||String(e)});return res.status(500).json({error:'Account information could not be updated'})}
   }
   if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});
   const q=clean(req.query?.q,180),channel=clean(req.query?.channel,100),category=clean(req.query?.category,100),limit=Math.min(Math.max(Number(req.query?.limit)||100,1),500);
@@ -23,5 +23,5 @@ export default async function handler(req,res){
     and (${channel}='' or ${channel}=any(ro.channel_codes)) and (${category}='' or ${category}=any(ro.categories))
     order by coalesce(mat.fit_score,0) desc,ro.confidence desc,ro.name limit ${limit}`;
     return res.status(200).json({organizations:rows,count:rows.length,limit,filters:{q,channel,category}})
-  }catch(e){return res.status(500).json({error:e.message})}
+  }catch(e){console.error('account universe failed',{message:e?.message||String(e)});return res.status(500).json({error:'Account data could not be loaded'})}
 }

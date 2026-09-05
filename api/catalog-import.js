@@ -50,5 +50,5 @@ export default async function handler(req,res){
     }
     await sql`update catalog_import_runs set rows_imported=${imported},rows_rejected=${errors.length},status='complete',errors=${sql.json(errors)},finished_at=now() where id=${run.id}`;
     return res.status(200).json({version:'9.8.3',status:'IMPORTED',source_type:type,demo_data:type==='demo',rows_seen:rows.length,rows_imported:imported,rows_rejected:errors.length,errors:errors.slice(0,50),interpretation:errors.length?'Approved catalog imported with rejected review rows excluded.':'Approved catalog imported successfully.'});
-  }catch(e){await sql`update catalog_import_runs set status='error',errors=${sql.json([{error:e.message}])},finished_at=now() where id=${run.id}`;return res.status(500).json({error:e.message})}
+  }catch(e){console.error('catalog import failed',{message:e?.message||String(e)});await sql`update catalog_import_runs set status='error',errors=${sql.json([{error:'Catalog import failed'}])},finished_at=now() where id=${run.id}`;return res.status(500).json({error:'Catalog import could not be completed'})}
 }

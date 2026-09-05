@@ -27,7 +27,8 @@ function competitiveOfferings(evidenceRows=[],productRows=[]){
     if(!organizationId||!name)return;
     const key=`${organizationId}|${brand}|${name}|${sourceUrl}`.toLowerCase();if(seen.has(key))return;seen.add(key);
     const rows=grouped.get(String(organizationId))||[];
-    if(rows.length<100)rows.push({name,brand,category:clean(item.category,140),price_text:clean(item.price_text,80),availability:clean(item.availability,180),source_url:sourceUrl,verification_status:clean(item.verification_status||'REVIEW_REQUIRED',40),observed_at:item.observed_at||null});
+    let researchContext={};try{researchContext=typeof item.raw_text==='string'?JSON.parse(item.raw_text):item.research_context||{}}catch{}
+    if(rows.length<100)rows.push({name,brand,category:clean(item.category,140),price_text:clean(item.price_text,80),availability:clean(item.availability,180),source_url:sourceUrl,verification_status:clean(item.verification_status||'REVIEW_REQUIRED',40),observed_at:item.observed_at||null,comparison_product_ids:Array.isArray(researchContext.comparison_product_ids)?researchContext.comparison_product_ids.map(String):[]});
     grouped.set(String(organizationId),rows);
   };
   for(const row of evidenceRows)for(const item of Array.isArray(row.payload?.offerings)?row.payload.offerings:[])add(row.organization_id,{...item,source_url:row.source_url,verification_status:row.verification_status,observed_at:row.observed_at});
@@ -68,8 +69,8 @@ export default async function handler(req,res){
       let evidenceRows=[],productRows=[];
       if(rows.length){
         [evidenceRows,productRows]=await Promise.all([
-          sql`select ce.organization_id,ce.payload,es.source_url,ce.verification_status,ce.observed_at from commercial_evidence ce join evidence_sources es on es.id=ce.source_id where ce.organization_id in (select organization_id from opportunity_workspaces where manufacturer_id=${tenant.tenant_id}) and ce.subject_type='retailer_assortment' and ce.verification_status in ('VERIFIED','REVIEW_REQUIRED') order by ce.observed_at desc limit 10000`,
-          sql`select a.organization_id,cp.brand,cp.product_name,cp.category,cp.price_text,cp.availability,cp.source_url,cp.verification_status,cp.observed_at from competitive_products cp join accounts a on a.id=cp.account_id where a.organization_id in (select organization_id from opportunity_workspaces where manufacturer_id=${tenant.tenant_id}) and cp.active=true order by cp.observed_at desc nulls last limit 10000`
+          sql`with latest as(select distinct on(ce.subject_type,ce.subject_key) ce.*,es.source_url from commercial_evidence ce join evidence_sources es on es.id=ce.source_id where ce.organization_id in (select organization_id from opportunity_workspaces where manufacturer_id=${tenant.tenant_id}) and ce.subject_type='retailer_assortment' order by ce.subject_type,ce.subject_key,ce.observed_at desc) select organization_id,payload,source_url,verification_status,observed_at from latest where verification_status in ('VERIFIED','REVIEW_REQUIRED') order by observed_at desc limit 10000`,
+          sql`select a.organization_id,cp.brand,cp.product_name,cp.category,cp.price_text,cp.availability,cp.source_url,cp.verification_status,cp.observed_at,cp.raw_text from competitive_products cp join accounts a on a.id=cp.account_id where a.organization_id in (select organization_id from opportunity_workspaces where manufacturer_id=${tenant.tenant_id}) and cp.active=true order by cp.observed_at desc nulls last limit 10000`
         ]);
       }
       const offerings=competitiveOfferings(evidenceRows,productRows);

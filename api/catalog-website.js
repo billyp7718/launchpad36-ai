@@ -9,7 +9,8 @@ const likelyProductPage=row=>!/(contact|about|learn|support|privacy|terms|dealer
 
 async function extractCatalogPages({website,candidates}){
   const key=process.env.OPENAI_API_KEY;if(!key)throw new Error('OPENAI_API_KEY is not configured');
-  const host=new URL(website).hostname.replace(/^www\./i,''),urls=candidates.map(x=>normalizePublicUrl(x.url||x)).filter(Boolean).filter(url=>{try{const h=new URL(url).hostname.replace(/^www\./i,'');return h===host||h.endsWith(`.${host}`)}catch{return false}}).slice(0,20);
+  if(candidates.length>20)throw Object.assign(new Error('Select no more than 20 product pages per extraction'),{status:400,code:'CATALOG_PAGE_LIMIT'});
+  const host=new URL(website).hostname.replace(/^www\./i,''),urls=candidates.map(x=>normalizePublicUrl(x.url||x)).filter(Boolean).filter(url=>{try{const h=new URL(url).hostname.replace(/^www\./i,'');return h===host||h.endsWith(`.${host}`)}catch{return false}});
   if(!urls.length)throw new Error('Select at least one valid product page');
   const prompt=`Extract real manufacturer catalog products from these explicitly approved pages on ${host}: ${JSON.stringify(urls)}. Use current web search and only return products directly supported by those pages or their linked official product detail pages. Exclude contact, informational, support, blog, dealer, collection-only, and navigation pages unless they contain specific product records. Each row requires an exact brand, product name, and manufacturer SKU or model number. If a SKU is not publicly supported, omit that product rather than inventing one. Preserve price, UPC, image URL, features, and category only when displayed; use zero or an empty value when unknown. product_url and source_url must be official URLs actually consulted. Never invent products, identifiers, prices, features, or images.`;
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),105000);
@@ -42,7 +43,7 @@ export default async function handler(req,res){
   try{
     if(req.body?.action==='extract'){
       const rows=await extractCatalogPages({website,candidates:Array.isArray(req.body?.candidates)?req.body.candidates:[]});
-      return res.status(200).json({version:'9.8.3',status:rows.length?'READY_FOR_REVIEW':'NO_PRODUCTS',rows,rows_extracted:rows.length,requires_explicit_approval:true,interpretation:rows.length?'Review the extracted product fields below. Nothing is imported until you approve.':'No products with attributable names and SKUs were found on the selected pages.'});
+      return res.status(200).json({version:'9.8.3',status:rows.length?'READY_FOR_REVIEW':'NO_PRODUCTS',rows,rows_extracted:rows.length,selected_page_count:req.body.candidates.length,requires_explicit_approval:true,interpretation:rows.length?'Review and edit the extracted product fields below. Nothing is imported until you approve.':'No products with attributable names and SKUs were found on the selected pages.'});
     }
     const host=new URL(website).hostname.replace(/^www\./i,'');
     const search=await firecrawl('search',{query:`site:${host} products OR shop OR catalog`,limit:Math.min(Math.max(Number(req.body?.limit)||40,1),75),scrapeOptions:{formats:['markdown']}});
@@ -55,6 +56,6 @@ export default async function handler(req,res){
     return res.status(200).json({version:'9.8.3',status:hits.length?'REVIEW_REQUIRED':'NO_CANDIDATES',website,candidates:hits,import_run_id:importRunId,tracking,failure_is_negative_evidence:false,interpretation:hits.length?'These are discovered public product-page candidates only. Review and approve before importing products or image URLs.':'No attributable product-page candidates were discovered. This is UNKNOWN and does not prove the vendor has no products.'});
   }catch(e){
     console.error('catalog website discovery failed',{message:e?.message||String(e)});
-    return res.status(502).json({version:'9.8.3',status:'DISCOVERY_FAILED',error:e?.message||'Website discovery failed',code:'CATALOG_WEBSITE_DISCOVERY_FAILED',website,candidates:[],failure_is_negative_evidence:false,interpretation:'Catalog acquisition failed. Product availability remains UNKNOWN; this failure is not evidence that the manufacturer has no products.'});
+    const status=e?.status||502;return res.status(status).json({version:'9.8.3',status:'DISCOVERY_FAILED',error:status===400?e.message:'Website discovery could not be completed',code:e?.code||'CATALOG_WEBSITE_DISCOVERY_FAILED',website,candidates:[],failure_is_negative_evidence:false,interpretation:'Catalog acquisition failed. Product availability remains UNKNOWN; this failure is not evidence that the manufacturer has no products.'});
   }
 }
