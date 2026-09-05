@@ -190,9 +190,9 @@ test('interactive account product research uses OpenAI without Firecrawl browser
 
 test('account product research can find comparables for a tenant-owned portfolio product',async()=>{
   const [apiSource,openaiSource,ui]=await Promise.all([readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
-  for(const marker of ['comparableProductQuery','portfolioProductOptions','Comparable to one of your products','comparison_product_id','selectedComparableProduct'])assert.match(ui,new RegExp(marker));
-  assert.match(apiSource,/p\.manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(apiSource,/comparisonProduct/);assert.match(apiSource,/openai_comparable_product_research/);
-  assert.match(openaiSource,/comparisonProduct/);assert.match(openaiSource,/competing or substitute offerings/);assert.match(openaiSource,/do not search only for our brand/);
+  for(const marker of ['comparisonProductList','comparisonProduct','Compare to your products','comparison_product_ids','selectedComparableProducts','productStoreZip','productStoreLocation'])assert.match(ui,new RegExp(marker));
+  assert.match(apiSource,/p\.manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(apiSource,/comparisonProducts/);assert.match(apiSource,/comparison_product_ids/);assert.match(apiSource,/store_verification_request/);assert.match(apiSource,/openai_comparable_product_research/);
+  assert.match(openaiSource,/comparisonProducts/);assert.match(openaiSource,/competing or substitute offerings/);assert.match(openaiSource,/do not search only for our brand/);assert.match(openaiSource,/CONFIRMED_AT_LOCATION/);assert.match(openaiSource,/exact product to the requested ZIP or store/);
 });
 
 test('OpenAI buyer research retains only source-backed exact-account candidates',()=>{
@@ -551,4 +551,11 @@ test('opportunities are grouped by account with brand and analysis-date tabs',as
   for(const marker of ['opportunityBrands','opportunityDate','opportunityLabel','opportunityTabs','Account Opportunities','Search account, brand, product, or owner','All statuses','All routes'])assert.match(ui,new RegExp(marker,'i'));
   assert.match(ui,/state\.workspaces\.filter\(item=>String\(item\.organization_id\)===String\(w\.organization_id\)\)/);
   assert.match(ui,/role="tab"/);assert.match(ui,/aria-selected=/);
+});
+
+test('product intelligence supports multi-product comparison and exact store evidence',async()=>{
+  const [ui,apiSource,openaiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8')]);
+  for(const marker of ['comparisonProduct:checked','comparison_product_ids','productStoreZip','productStoreLocation','Store Verification','evidenceSquare','Evidence backed','Research needed'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['comparison_product_ids','store_zip','store_location','store_verification_request','confirmed_count','signal_count'])assert.match(apiSource,new RegExp(marker));
+  for(const marker of ['CONFIRMED_AT_LOCATION','SIGNAL_ONLY','NOT_FOUND','NOT_REQUESTED','Price is comparison context, never an exclusion criterion'])assert.match(openaiSource,new RegExp(marker));
 });
