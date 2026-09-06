@@ -535,9 +535,9 @@ test('account assortment volume uses editable SKU prices to calculate annual rev
 
 test('deep market analysis queues the top 25 accounts and saves editable channel status',async()=>{
   const [ui,opportunitiesApi,buyersApi,researchApi]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/buyers.js',import.meta.url),'utf8'),readFile(new URL('../api/account-research.js',import.meta.url),'utf8')]);
-  for(const marker of ['Run Deep Market Analysis','runDeepMarketAnalysis','comparison_product_ids:ids','Each completed account is saved automatically','Save SKU Channel Status','comparisonInStore','comparisonOnline','skuComparisonKey','In-Store Opportunity','Online Opportunity','openBuyerEditor','Save Buyer','productBatches'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Run Deep Market Analysis','runDeepMarketAnalysis','comparison_product_ids:ids','Each completed account is saved automatically','Competitive Product','Save Competitive Product Channels','competitiveInStore','competitiveOnline','competitiveOfferingKey','In-Store Opportunity','Online Opportunity','openBuyerEditor','Save Buyer','productBatches'])assert.match(ui,new RegExp(marker));
   assert.match(ui,/slice\(0,25\)/);
-  for(const marker of ['comparison_status','manual_account_review','in_store','online','store_count'])assert.match(opportunitiesApi,new RegExp(marker));
+  for(const marker of ['comparison_status','competitive_channel_status','manual_competitive_product_review','in_store','online','store_count'])assert.match(opportunitiesApi,new RegExp(marker));
   assert.match(buyersApi,/req\.method==='PATCH'/);
   assert.match(researchApi,/existingComparisonIds/);assert.match(researchApi,/linkedProductIds/);
 });
