@@ -518,13 +518,13 @@ test('opportunity details support editable proposed assortments and account comp
   assert.match(apiSource,/assigned_buyer_id/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
 });
 
-test('account assortment volume uses catalog dealer cost to calculate annual revenue',async()=>{
+test('account assortment volume uses editable SKU prices to calculate annual revenue',async()=>{
   const [ui,apiSource]=await Promise.all([
     readFile(new URL('../index.html',import.meta.url),'utf8'),
     readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')
   ]);
-  for(const marker of ['Monthly Units / Store','Store / location count','Retail Price','Dealer Cost','Annual Revenue','assortmentMonthly','expected monthly unit sales per store'])assert.match(ui,new RegExp(marker,'i'));
-  assert.match(ui,/monthly units × store count × catalog dealer cost × 12/i);
+  for(const marker of ['Monthly Units / Store','Store / location count','Retail Price','Wholesale Price','Annual Revenue','assortmentMonthly','assortmentRetail','assortmentDealer','Editable retail','Editable wholesale'])assert.match(ui,new RegExp(marker,'i'));
+  assert.match(ui,/Monthly units × stores × wholesale × 12/i);
   assert.match(apiSource,/pv\.wholesale/);assert.match(apiSource,/pv\.msrp/);assert.match(apiSource,/pv\.map/);
   for(const marker of ['monthly_sales_volume','dealer_cost','retail_price','annual_revenue','account_sku_monthly_units_x_dealer_cost_x_store_count'])assert.match(apiSource,new RegExp(marker));
   assert.match(apiSource,/modeled_contribution:dealerCost/);
@@ -535,7 +535,7 @@ test('account assortment volume uses catalog dealer cost to calculate annual rev
 
 test('deep market analysis queues the top 25 accounts and saves editable channel status',async()=>{
   const [ui,opportunitiesApi,buyersApi,researchApi]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/buyers.js',import.meta.url),'utf8'),readFile(new URL('../api/account-research.js',import.meta.url),'utf8')]);
-  for(const marker of ['Run Deep Market Analysis','runDeepMarketAnalysis','comparison_product_ids:ids','Each completed account is saved automatically','Save Comparison Status','comparisonInStore','comparisonOnline','openBuyerEditor','Save Buyer','productBatches'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Run Deep Market Analysis','runDeepMarketAnalysis','comparison_product_ids:ids','Each completed account is saved automatically','Save SKU Channel Status','comparisonInStore','comparisonOnline','skuComparisonKey','In-Store Opportunity','Online Opportunity','openBuyerEditor','Save Buyer','productBatches'])assert.match(ui,new RegExp(marker));
   assert.match(ui,/slice\(0,25\)/);
   for(const marker of ['comparison_status','manual_account_review','in_store','online','store_count'])assert.match(opportunitiesApi,new RegExp(marker));
   assert.match(buyersApi,/req\.method==='PATCH'/);
