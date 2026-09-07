@@ -8,7 +8,7 @@ import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
 import { validateCommercialObservation, livingHash, refreshTier } from '../api/_living-intelligence.js';
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
-import { calculateMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
+import { calculateMarketOpportunity, calculateMultiRouteMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources } from '../api/_openai-research.js';
@@ -322,9 +322,22 @@ test('direct B2B opportunity uses accounts rather than retail footprint',()=>{
   assert.equal(result.summary.target_account_count,1);assert.equal(result.summary.base_manufacturer_revenue,500);assert.equal(result.account_opportunities[0].footprint,100);
 });
 
+test('multi-route market opportunity combines selected routes and deduplicates crossover accounts',()=>{
+  const products=[{id:'p1',name:'Display Mount',category:'TV Mounts',categories:['TV Mounts'],variants:[{sku:'M1',wholesale:100,msrp:180}]}],organizations=[
+    {id:'retail',name:'Retailer',organization_type:'retailer',channel_codes:['ce'],categories:['TV Mounts'],footprint:10},
+    {id:'partner',name:'Distributor',organization_type:'distributor',channel_codes:['distribution'],categories:['TV Mounts'],footprint:20},
+    {id:'crossover',name:'Retail Distributor',organization_type:'distributor',channel_codes:['distribution','ce'],categories:['TV Mounts'],footprint:5},
+    {id:'direct',name:'Enterprise',organization_type:'enterprise',channel_codes:['enterprise'],categories:['TV Mounts'],footprint:1}
+  ];
+  const result=calculateMultiRouteMarketOpportunity({products,organizations,routes:['retail','distributor_dealer'],assumptions:{annual_units_per_location:10,units_per_account:10,distribution_probability:25,win_probability:25}});
+  assert.deepEqual(result.account_opportunities.map(x=>x.organization_id).sort(),['crossover','partner','retail']);
+  assert.equal(result.summary.target_account_count,3);assert.deepEqual(result.assumptions.routes_to_market,['retail','distributor_dealer']);assert.equal(result.assumptions.route_to_market,'mixed');
+  assert.deepEqual(result.account_opportunities.find(x=>x.organization_id==='crossover').routes_to_market,['retail','distributor_dealer']);
+});
+
 test('market intelligence UI supports multiple products, channel models and SKU drill-down',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  assert.match(source,/class="moProduct" type="checkbox"/);assert.match(source,/Select All/);
+  assert.match(source,/class="moProduct" type="checkbox"/);assert.match(source,/class="moRoute" type="checkbox"/);assert.match(source,/routes_to_market/);assert.match(source,/Select All/);
   for(const route of ['retail','direct_b2b','distributor_dealer','mixed'])assert.match(source,new RegExp(`value="${route}"`));
   assert.match(source,/Low Scenario/);assert.match(source,/Base Scenario/);assert.match(source,/High Scenario/);assert.match(source,/Edit Account/);assert.match(source,/api\/market-opportunity/);
 });
@@ -363,6 +376,11 @@ test('household cleaning products qualify relevant mass, grocery and drug retail
 test('account universe UI exposes Excel CSV import, manual entry and a template',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/Import Accounts/);assert.match(source,/Download Template/);assert.match(source,/Add Account/);assert.match(source,/api\/retail-universe-import/);assert.match(source,/launchpad36-account-import-template\.csv/);
+});
+
+test('product import UI provides a downloadable catalog template',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  for(const marker of ['Download Product Template','downloadProductImportTemplate','launchpad36-product-import-template.csv','Product Family','Image URL'])assert.match(source,new RegExp(marker));
 });
 
 test('product-account fit excludes incompatible and unprofiled retailers',()=>{
