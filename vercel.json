@@ -1,4 +1,8 @@
 {
+  "rewrites": [
+    { "source": "/", "destination": "/api/app-shell" },
+    { "source": "/index.html", "destination": "/api/app-shell" }
+  ],
   "crons": [
     {
       "path": "/api/weekly-refresh",
