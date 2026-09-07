@@ -61,6 +61,15 @@ function comparisonStatus(input={},allowedSkuKeys=[]){
   return out;
 }
 
+function competitiveChannelStatus(input={}){
+  if(!input||typeof input!=='object'||Array.isArray(input))throw Object.assign(new Error('Competitive channel status must be an object'),{status:400});
+  if(Object.keys(input).length>500)throw Object.assign(new Error('No more than 500 competitive products can be confirmed at once'),{status:400});
+  const out={};for(const [offeringKey,value] of Object.entries(input)){
+    const key=clean(offeringKey,600);if(!key||!value||typeof value!=='object')continue;
+    out[key]={brand:clean(value.brand,140),name:clean(value.name,220),source_url:clean(value.source_url,1000),in_store:value.in_store===true,online:value.online===true,notes:clean(value.notes,300),confirmed_at:new Date().toISOString(),confirmation_source:'manual_competitive_product_review'};
+  }return out;
+}
+
 export default async function handler(req,res){
   const tenant=await resolveTenant(req,res);if(!tenant)return;
   const sql=db();
@@ -113,6 +122,7 @@ export default async function handler(req,res){
     let scenario=existing.scenario||{};
     if(req.body?.proposed_assortment!==undefined){const storeCount=locationCount(req.body?.store_count??scenario?.volume_model?.store_count??scenario?.account?.footprint??1),assortment=await proposedAssortment(sql,tenant.tenant_id,req.body.proposed_assortment,storeCount),annualRevenue=money(assortment.reduce((sum,item)=>sum+item.annual_revenue,0)),priorAdjustment=scenario.account_adjustment||null,adjustment=priorAdjustment?{...priorAdjustment,model_generated_annual_revenue:annualRevenue}:null,appliedRevenue=adjustment?.manual_annual_revenue??annualRevenue,account={...(scenario.account||{}),...revenueValues(scenario,appliedRevenue),product_contributions:assortment};scenario={...scenario,account,proposed_assortment:assortment,recommended_sku:assortment[0]||null,volume_model:{basis:'account_sku_monthly_units_x_dealer_cost_x_store_count',store_count:storeCount,annual_manufacturer_revenue:annualRevenue},...(adjustment?{account_adjustment:adjustment}:{}),assortment_updated_at:new Date().toISOString()}}
     if(req.body?.comparison_status!==undefined){const assortment=scenario.proposed_assortment||[],allowed=[...(existing.product_ids||[]),...assortment.flatMap(item=>[String(item.product_id),`${String(item.product_id)}::${String(item.sku||'')}`])];scenario={...scenario,comparison_status:comparisonStatus(req.body.comparison_status,allowed),comparison_status_updated_at:new Date().toISOString()}}
+    if(req.body?.competitive_channel_status!==undefined)scenario={...scenario,competitive_channel_status:competitiveChannelStatus(req.body.competitive_channel_status),competitive_channel_status_updated_at:new Date().toISOString()};
     if(req.body?.account_adjustment!==undefined){const adjustment=accountAdjustment(req.body.account_adjustment,scenario),appliedRevenue=adjustment.manual_annual_revenue??adjustment.model_generated_annual_revenue,account={...(scenario.account||{}),...revenueValues(scenario,appliedRevenue)};scenario={...scenario,account,account_adjustment:adjustment}}
     if(req.body?.assigned_buyer_id!==undefined){const buyerId=String(req.body.assigned_buyer_id||'').trim();let assignedBuyer=null;if(buyerId){assignedBuyer=(await sql`select b.id,b.name,b.title,b.email,b.phone,b.linkedin,b.category,b.confidence,b.verification_status,b.source_url from buyers b join accounts a on a.id=b.account_id where b.id=${buyerId} and a.organization_id=${existing.organization_id} limit 1`)[0];if(!assignedBuyer)throw Object.assign(new Error('Selected buyer does not belong to this opportunity account'),{status:400})}scenario={...scenario,assigned_buyer:assignedBuyer,buyer_assigned_at:new Date().toISOString()}}
     const row=(await sql`update opportunity_workspaces set status=${requested},priority=${clean(req.body?.priority||existing.priority,30)},owner=${clean(req.body?.owner??existing.owner,160)},next_action=${clean(req.body?.next_action??existing.next_action,500)},scenario=${sql.json(scenario)},approved_at=${requested==='approved'?new Date().toISOString():existing.approved_at},updated_at=now() where id=${id} and manufacturer_id=${tenant.tenant_id} returning *`)[0];
