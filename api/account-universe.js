@@ -13,15 +13,15 @@ export default async function handler(req,res){
     try{const row=(await sql`update retail_organizations set name=${name},domain=${domain},organization_type=${clean(req.body?.organization_type||'retailer',60)},channel_codes=${list(req.body?.channels)},categories=${list(req.body?.categories)},coverage=${clean(req.body?.coverage,120)},region=${clean(req.body?.region,120)},headquarters=${clean(req.body?.headquarters,180)},footprint=${Math.max(0,Number(req.body?.footprint)||0)},ecommerce=${Boolean(req.body?.ecommerce)},source_url=${website},updated_at=now() where id=${id} and active=true returning *`)[0];if(!row)return res.status(404).json({error:'Account not found'});return res.status(200).json({account:row})}catch(e){console.error('account update failed',{message:e?.message||String(e)});return res.status(500).json({error:'Account information could not be updated'})}
   }
   if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});
-  const q=clean(req.query?.q,180),channel=clean(req.query?.channel,100),category=clean(req.query?.category,100),limit=Math.min(Math.max(Number(req.query?.limit)||100,1),500);
+  const q=clean(req.query?.q,180),channels=list(req.query?.channels||req.query?.channel),category=clean(req.query?.category,100),limit=Math.min(Math.max(Number(req.query?.limit)||100,1),500);
   try{const rows=await sql`
     select ro.*,coalesce(mat.fit_score,0) fit_score,coalesce(mat.whitespace_score,0) whitespace_score,coalesce(mat.status,'') target_status,
     coalesce(buyer_summary.buyer_count,0) buyer_count,buyer_summary.buyer_data_updated_at,coalesce(buyer_summary.buyers,'[]'::json) buyers
     from retail_organizations ro left join manufacturer_account_targets mat on mat.organization_id=ro.id and mat.manufacturer_id=${tenant.tenant_id}
     left join lateral (select count(*)::int buyer_count,max(b.updated_at) buyer_data_updated_at,json_agg(json_build_object('name',b.name,'title',b.title,'category',b.category,'email',b.email,'phone',b.phone,'linkedin',b.linkedin,'source_url',b.source_url,'confidence',b.confidence) order by b.confidence desc,b.updated_at desc) buyers from accounts a join buyers b on b.account_id=a.id where a.organization_id=ro.id) buyer_summary on true
     where ro.active=true and (${q}='' or ro.name ilike ${'%'+q+'%'} or ro.domain ilike ${'%'+q+'%'})
-    and (${channel}='' or ${channel}=any(ro.channel_codes)) and (${category}='' or ${category}=any(ro.categories))
+    and (${channels.length}=0 or ro.channel_codes && ${channels}) and (${category}='' or ${category}=any(ro.categories))
     order by coalesce(mat.fit_score,0) desc,ro.confidence desc,ro.name limit ${limit}`;
-    return res.status(200).json({organizations:rows,count:rows.length,limit,filters:{q,channel,category}})
+    return res.status(200).json({organizations:rows,count:rows.length,limit,filters:{q,channels,category}})
   }catch(e){console.error('account universe failed',{message:e?.message||String(e)});return res.status(500).json({error:'Account data could not be loaded'})}
 }
