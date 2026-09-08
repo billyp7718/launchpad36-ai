@@ -8,11 +8,13 @@ export default function handler(req,res){
     const channelUiPath=path.join(root,'channel-ui.js');
     const buyerUiPath=path.join(root,'buyer-contact-ui.js');
     const workflowUiPath=path.join(root,'executive-workflow-ui.js');
+    const buyerCoverageUiPath=path.join(root,'buyer-coverage-ui.js');
     let html=fs.readFileSync(htmlPath,'utf8');
     const channelUi=fs.readFileSync(channelUiPath,'utf8');
     const buyerUi=fs.readFileSync(buyerUiPath,'utf8');
     const workflowUi=fs.readFileSync(workflowUiPath,'utf8');
-    html=html.replace('</body>',`<script>${channelUi}</script><script>${buyerUi}</script><script>${workflowUi}</script></body>`);
+    const buyerCoverageUi=fs.readFileSync(buyerCoverageUiPath,'utf8');
+    html=html.replace('</body>',`<script>${channelUi}</script><script>${buyerUi}</script><script>${workflowUi}</script><script>${buyerCoverageUi}</script></body>`);
     res.setHeader('content-type','text/html; charset=utf-8');
     res.setHeader('cache-control','no-store, max-age=0');
     return res.status(200).send(html);
