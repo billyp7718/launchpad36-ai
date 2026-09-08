@@ -8,10 +8,10 @@ const validEmail=value=>{const email=clean(value,220).toLowerCase();return /^[^\
 const normalizeDomain=value=>{try{return new URL(/^https?:\/\//i.test(String(value||''))?String(value):`https://${value}`).hostname.replace(/^www\./,'').toLowerCase()}catch{return clean(value,180).replace(/^www\./,'').toLowerCase()}};
 const nameKey=value=>clean(value,180).toLowerCase().replace(/[^a-z0-9]+/g,'');
 
-async function apolloJson(url,key,options={}){
+async function apolloJson(url,key){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
   try{
-    const response=await fetch(url,{method:'POST',headers:{accept:'application/json','content-type':'application/json','cache-control':'no-cache','x-api-key':key},signal:controller.signal,...options});
+    const response=await fetch(url,{method:'POST',headers:{accept:'application/json','content-type':'application/json','cache-control':'no-cache','x-api-key':key},signal:controller.signal});
     let body={};try{body=await response.json()}catch{}
     return {ok:response.ok,status:response.status,body};
   }finally{clearTimeout(timeout)}
@@ -21,7 +21,6 @@ function personFromMatch(body={}){return body.person||body.contact||body.match||
 function matchResult(body={}){
   const person=personFromMatch(body)||{};
   return {
-    person,
     email:validEmail(person.email||body.email),
     email_status:clean(person.email_status||body.email_status,60),
     match_confidence:clean(body.match_confidence||person.match_confidence,40),
@@ -52,8 +51,7 @@ async function searchExactPerson({key,name,domain,title=''}){
   if(!response.ok)return {...response,candidate:null};
   const people=Array.isArray(response.body.people)?response.body.people:[];
   const exact=people.find(p=>nameKey(p.name||[p.first_name,p.last_name].filter(Boolean).join(' '))===nameKey(name));
-  const candidate=exact||people[0]||null;
-  return {...response,candidate};
+  return {...response,candidate:exact||people[0]||null};
 }
 
 export default async function handler(req,res){
@@ -69,7 +67,7 @@ export default async function handler(req,res){
     const domain=normalizeDomain(row.organization_domain||row.account_domain||row.organization_source_url);
     if(!domain)return res.status(400).json({error:'This account needs a valid retailer domain before Apollo deep search can run'});
     const attempts=[];
-    let matched=await matchIndividual({key,name:row.name,domain,linkedin:row.linkedin||''});
+    const matched=await matchIndividual({key,name:row.name,domain,linkedin:row.linkedin||''});
     attempts.push({type:'individual_match',http_status:matched.status,match_confidence:matched.result?.match_confidence||'',email_found:Boolean(matched.result?.email)});
     let result=matched.result;
     if(!matched.ok||!result?.email){
@@ -83,8 +81,9 @@ export default async function handler(req,res){
       }
     }
     if(!result)return res.status(200).json({status:'NO_MATCH',buyer:row,attempts,message:'Apollo did not return a person match for this buyer.'});
-    const email=result.email||row.email||'',linkedin=result.linkedin||row.linkedin||'',title=result.title||row.title||'';
-    const updated=(await sql`update buyers set email=${email},linkedin=${linkedin},title=${title},source=${result.email?'Apollo Deep Buyer Search':row.source},source_url=${linkedin||row.source_url},confidence=${result.email?greatest(coalesce(confidence,0),94):coalesce(confidence,0)},verification_status=${result.email?'REVIEW_REQUIRED':row.verification_status},notes=${clean(`${row.notes||''}${row.notes?' | ':''}Apollo individual enrichment: ${result.match_confidence||'unknown'} match${result.email_status?`, email ${result.email_status}`:''}.`,1000)},updated_at=now() where id=${buyerId} returning *`)[0];
+    const email=result.email||row.email||'',linkedin=result.linkedin||row.linkedin||'',title=result.title||row.title||'',confidence=result.email?Math.max(Number(row.confidence)||0,94):Number(row.confidence)||0;
+    const notes=clean(`${row.notes||''}${row.notes?' | ':''}Apollo individual enrichment: ${result.match_confidence||'unknown'} match${result.email_status?`, email ${result.email_status}`:''}.`,1000);
+    const updated=(await sql`update buyers set email=${email},linkedin=${linkedin},title=${title},source=${result.email?'Apollo Deep Buyer Search':row.source},source_url=${linkedin||row.source_url},confidence=${confidence},verification_status=${result.email?'REVIEW_REQUIRED':row.verification_status},notes=${notes},updated_at=now() where id=${buyerId} returning *`)[0];
     return res.status(200).json({status:result.email?'EMAIL_FOUND':'MATCH_NO_EMAIL',buyer:updated,apollo:{match_confidence:result.match_confidence,email_status:result.email_status,apollo_id:result.apollo_id,credits_used:result.credits_used},attempts,message:result.email?'Apollo returned a work email and Launchpad36 saved it.':'Apollo matched the buyer but did not return a work email.'});
   }catch(error){console.error('buyer deep search failed',{message:error?.message||String(error),buyer_id:buyerId});return res.status(500).json({error:'Deep buyer search could not be completed'})}
 }
