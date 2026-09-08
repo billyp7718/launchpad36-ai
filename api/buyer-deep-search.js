@@ -69,14 +69,23 @@ export default async function handler(req,res){
     const attempts=[];
     const matched=await matchIndividual({key,name:row.name,domain,linkedin:row.linkedin||''});
     attempts.push({type:'individual_match',http_status:matched.status,match_confidence:matched.result?.match_confidence||'',email_found:Boolean(matched.result?.email)});
+    if(matched.status===401||matched.status===403){
+      return res.status(200).json({status:'APOLLO_FORBIDDEN',buyer:row,attempts,http_status:matched.status,message:'Apollo rejected People Enrichment for the configured API key. Check that the key is valid and that the Apollo plan/API permissions include People Enrichment.'});
+    }
     let result=matched.result;
     if(!matched.ok||!result?.email){
       const searched=await searchExactPerson({key,name:row.name,domain,title:row.title||''});
       attempts.push({type:'exact_people_search',http_status:searched.status,candidate_found:Boolean(searched.candidate)});
+      if(searched.status===401||searched.status===403){
+        return res.status(200).json({status:'APOLLO_FORBIDDEN',buyer:row,attempts,http_status:searched.status,message:'Apollo rejected People Search/Enrichment for the configured API key. Check the Apollo API key and plan permissions.'});
+      }
       const apolloId=clean(searched.candidate?.id||searched.candidate?.person_id,100);
       if(apolloId){
         const byId=await matchIndividual({key,name:row.name,domain,id:apolloId});
         attempts.push({type:'apollo_id_match',http_status:byId.status,match_confidence:byId.result?.match_confidence||'',email_found:Boolean(byId.result?.email)});
+        if(byId.status===401||byId.status===403){
+          return res.status(200).json({status:'APOLLO_FORBIDDEN',buyer:row,attempts,http_status:byId.status,message:'Apollo found a candidate but rejected the enrichment request for the configured API key or plan.'});
+        }
         if(byId.ok&&(byId.result?.email||!result))result=byId.result;
       }
     }
