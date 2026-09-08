@@ -1,7 +1,9 @@
 {
-  "rewrites": [
-    { "source": "/", "destination": "/api/app-shell" },
-    { "source": "/index.html", "destination": "/api/app-shell" }
+  "routes": [
+    { "src": "/", "dest": "/api/app-shell" },
+    { "src": "/index.html", "dest": "/api/app-shell" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/$1" }
   ],
   "crons": [
     {
