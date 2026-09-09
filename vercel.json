@@ -25,10 +25,6 @@
     {
       "path": "/api/living-intelligence-refresh",
       "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/opportunity-alert-refresh",
-      "schedule": "30 12 * * *"
     }
   ]
 }

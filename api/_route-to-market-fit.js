@@ -40,6 +40,6 @@ export async function evaluateRouteToMarketFit(input={}){
     const parsed=JSON.parse(text||'{}'),known=new Map();for(const p of manufacturer)for(const v of p.variants||[])known.set(clean(v.sku,180).toLowerCase(),{product:p.name,sku:v.sku});
     const skuRecommendations=(parsed.sku_recommendations||[]).filter(x=>known.has(clean(x.sku,180).toLowerCase())).map(x=>({...x,in_store_fit:clamp(x.in_store_fit),online_fit:clamp(x.online_fit),confidence:clamp(x.confidence),rationale:clean(x.rationale,500),evidence_signals:(x.evidence_signals||[]).map(s=>clean(s,220)).slice(0,6)}));
     return {source:'AI_EVIDENCE_SYNTHESIS',model,response_id:clean(body.id,120),summary:{account_recommendation:parsed.summary.account_recommendation,account_in_store_fit:clamp(parsed.summary.account_in_store_fit),account_online_fit:clamp(parsed.summary.account_online_fit),rationale:clean(parsed.summary.rationale,600)},sku_recommendations:skuRecommendations,observed_channel_signals:counts};
-  }catch(error){console.error('[route-to-market-fit] AI evaluation failed',{message:error?.message||String(error)});return {...fallback({account,retailer_products:retailerProducts,manufacturer_products:manufacturerProducts}),ai_error:clean(error?.message||String(error),300)}
+  }catch(error){console.error('[route-to-market-fit] AI evaluation failed',{message:error?.message||String(error)});return {...fallback({account,retailer_products:retailerProducts,manufacturer_products:manufacturerProducts}),ai_error:clean(error?.message||String(error),300)}}
   finally{clearTimeout(timeout)}
 }

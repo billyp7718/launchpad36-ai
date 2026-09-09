@@ -109,7 +109,26 @@ test('immutable change history keeps processing state in a separate table',async
   const eventDefinition=source.match(/create table if not exists intelligence_change_events \([\s\S]*?\n\);/)?.[0]||'';
   assert.ok(eventDefinition);assert.doesNotMatch(eventDefinition,/processed_at/);
   assert.match(source,/create table if not exists intelligence_change_event_processing/);
+  assert.match(source,/column_name='processed_at'/);
+  assert.match(source,/insert into intelligence_change_event_processing\(change_event_id,processor,status,processed_at,last_attempt_at\)/);
+  assert.doesNotMatch(source,/drop column processed_at/i);
   assert.match(source,/create trigger intelligence_change_events_immutable/);
+});
+
+test('monitor provisioning uses server-side webhook configuration without exposing its secret',async()=>{
+  const route=await import('../api/monitor-targets.js');
+  const payload=route.buildFirecrawlMonitorPayload({sourceUrl:'https://retailer.example/audio',targetType:'retailer_assortment',tier:'weekly',categoryFocus:'Premium Audio',webhookUrl:'https://app.example/api/firecrawl-monitor-webhook'});
+  assert.deepEqual(payload.schedule,{text:'every week'});
+  assert.deepEqual(payload.targets,[{type:'scrape',urls:['https://retailer.example/audio']}]);
+  assert.equal(payload.judgeEnabled,true);
+  assert.deepEqual(payload.webhook,{url:'https://app.example/api/firecrawl-monitor-webhook',events:['monitor.page','monitor.check.completed']});
+  assert.doesNotMatch(JSON.stringify(payload),/secret/i);
+  const source=await readFile(new URL('../api/monitor-targets.js',import.meta.url),'utf8');
+  assert.match(source,/process\.env\.FIRECRAWL_MONITOR_WEBHOOK_URL/);
+  assert.match(source,/process\.env\.FIRECRAWL_WEBHOOK_SECRET/);
+  assert.match(source,/api\.firecrawl\.dev\/v2\/monitor/);
+  assert.match(source,/Authorization:`Bearer \$\{config\.apiKey\}`/);
+  assert.doesNotMatch(source,/[?&](?:secret|token)=/i);
 });
 
 test('system status reports the complete production readiness chain without exposing secrets',async()=>{
@@ -506,10 +525,10 @@ test('weekly retailer discovery retains only attributable candidates and dedupli
   const result=normalizeOpenAIRetailers(payload);assert.equal(result.status,'SUCCESS');assert.equal(result.retailers.length,1);assert.equal(result.retailers[0].verification_status,'DISCOVERY_CANDIDATE');assert.equal(result.retailers[0].headquarters,'Austin, Texas');
 });
 
-test('retailer discovery agent is attached to the existing weekly Vercel job',async()=>{
-  const [agent,weekly,ui,status,config]=await Promise.all([readFile(new URL('../api/retailer-discovery-agent.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../vercel.json',import.meta.url),'utf8')]);
+test('retailer discovery and opportunity alerts share the existing scheduled refresh jobs',async()=>{
+  const [agent,weekly,living,ui,status,config]=await Promise.all([readFile(new URL('../api/retailer-discovery-agent.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../api/living-intelligence-refresh.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../vercel.json',import.meta.url),'utf8')]);
   assert.match(agent,/searchOpenAIRetailers/);assert.match(agent,/DISCOVERY_CANDIDATE/);assert.match(agent,/runLivingIntelligencePipeline/);assert.match(agent,/where active=true and \(lower\(regexp_replace\(domain/);
-  assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(ui,/Discover New Retailers/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
+  assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(living,/runOpportunityAlertRefresh/);assert.match(ui,/Discover New Retailers/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
   const crons=JSON.parse(config).crons;assert.equal(crons.length,2);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));
 });
 
