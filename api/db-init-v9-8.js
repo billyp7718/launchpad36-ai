@@ -134,7 +134,6 @@ create index if not exists intelligence_change_processing_status_idx on intellig
 do $$ begin
  if exists(select 1 from information_schema.columns where table_schema='public' and table_name='intelligence_change_events' and column_name='processed_at') then
   execute 'insert into intelligence_change_event_processing(change_event_id,processor,status,processed_at,last_attempt_at) select id,''legacy'',case when processed_at is null then ''pending'' else ''processed'' end,processed_at,processed_at from intelligence_change_events on conflict(change_event_id,processor) do nothing';
-  execute 'alter table intelligence_change_events drop column processed_at';
  end if;
 end $$;
 

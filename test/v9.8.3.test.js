@@ -109,6 +109,9 @@ test('immutable change history keeps processing state in a separate table',async
   const eventDefinition=source.match(/create table if not exists intelligence_change_events \([\s\S]*?\n\);/)?.[0]||'';
   assert.ok(eventDefinition);assert.doesNotMatch(eventDefinition,/processed_at/);
   assert.match(source,/create table if not exists intelligence_change_event_processing/);
+  assert.match(source,/column_name='processed_at'/);
+  assert.match(source,/insert into intelligence_change_event_processing/);
+  assert.doesNotMatch(source,/drop\s+column\s+(?:if\s+exists\s+)?processed_at/i);
   assert.match(source,/create trigger intelligence_change_events_immutable/);
 });
 

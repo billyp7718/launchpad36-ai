@@ -12,7 +12,7 @@ V9.8.3 adds review-gated catalog onboarding and an append-only public commercial
 
 ## Evidence policy and pipeline
 
-The enforced order is acquisition → change detection → validation → L36 Intelligence Agent proposal → deterministic database update. The immutable `commercial_evidence` and `intelligence_change_events` tables retain source snapshots and changes. Mutable processing state is isolated in `intelligence_change_event_processing`. Only evidence deterministically classified `VERIFIED` can update `current_commercial_truth`. Agent output is stored as a review-required proposal and is never authorized to mutate verified commercial truth.
+The enforced order is acquisition → change detection → validation → L36 Intelligence Agent proposal → deterministic database update. The immutable `commercial_evidence` and `intelligence_change_events` tables retain source snapshots and changes. Mutable processing state is isolated in `intelligence_change_event_processing`. Existing installations retain the legacy `intelligence_change_events.processed_at` column for backward compatibility; its values are copied to the processing table and the immutable trigger prevents further history mutation. Only evidence deterministically classified `VERIFIED` can update `current_commercial_truth`. Agent output is stored as a review-required proposal and is never authorized to mutate verified commercial truth.
 
 Acquisition errors, blocked pages, empty search results, weak evidence, and conflicts remain `UNKNOWN`, `REVIEW_REQUIRED`, or `CONFLICTING`; they never prove commercial absence.
 
