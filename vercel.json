@@ -1,6 +1,7 @@
 {
-  "rewrites": [
-    { "source": "/", "destination": "/api/app-shell" }
+  "routes": [
+    { "src": "^/$", "dest": "/api/app-shell" },
+    { "handle": "filesystem" }
   ],
   "headers": [
     {
