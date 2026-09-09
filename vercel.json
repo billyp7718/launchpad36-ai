@@ -1,4 +1,7 @@
 {
+  "rewrites": [
+    { "source": "/", "destination": "/api/app-shell" }
+  ],
   "headers": [
     {
       "source": "/",
