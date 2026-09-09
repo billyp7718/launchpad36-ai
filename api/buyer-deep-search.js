@@ -1,98 +1,32 @@
 import { db } from './_db.js';
 import { requireAdmin } from './_auth.js';
 
-const APOLLO_MATCH='https://api.apollo.io/api/v1/people/match';
-const APOLLO_SEARCH='https://api.apollo.io/api/v1/mixed_people/api_search';
-const clean=(value,max=300)=>String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
-const validEmail=value=>{const email=clean(value,220).toLowerCase();return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)&&email!=='email_not_unlocked@domain.com'&&!/example\.com$/.test(email)?email:''};
-const normalizeDomain=value=>{try{return new URL(/^https?:\/\//i.test(String(value||''))?String(value):`https://${value}`).hostname.replace(/^www\./,'').toLowerCase()}catch{return clean(value,180).replace(/^www\./,'').toLowerCase()}};
-const nameKey=value=>clean(value,180).toLowerCase().replace(/[^a-z0-9]+/g,'');
+const clean=(v,m=500)=>String(v||'').replace(/\s+/g,' ').trim().slice(0,m);
+const email=v=>{const x=clean(v,220).toLowerCase();return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x)&&!x.endsWith('@example.com')?x:''};
+const domain=v=>{try{return new URL(/^https?:\/\//i.test(String(v||''))?v:`https://${v}`).hostname.replace(/^www\./,'').toLowerCase()}catch{return clean(v,180).replace(/^www\./,'').toLowerCase()}};
+const phone=v=>{const x=clean(v,80);return /\d{7,}/.test(x.replace(/\D/g,''))?x:''};
+async function json(url,opt={}){const c=new AbortController(),t=setTimeout(()=>c.abort(),25000);try{const r=await fetch(url,{...opt,signal:c.signal});let b={};try{b=await r.json()}catch{}return {ok:r.ok,status:r.status,body:b}}finally{clearTimeout(t)}}
 
-async function apolloJson(url,key){
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
-  try{
-    const response=await fetch(url,{method:'POST',headers:{accept:'application/json','content-type':'application/json','cache-control':'no-cache','x-api-key':key},signal:controller.signal});
-    let body={};try{body=await response.json()}catch{}
-    return {ok:response.ok,status:response.status,body};
-  }finally{clearTimeout(timeout)}
-}
-
-function personFromMatch(body={}){return body.person||body.contact||body.match||null}
-function matchResult(body={}){
-  const person=personFromMatch(body)||{};
-  return {
-    email:validEmail(person.email||body.email),
-    email_status:clean(person.email_status||body.email_status,60),
-    match_confidence:clean(body.match_confidence||person.match_confidence,40),
-    linkedin:clean(person.linkedin_url,500),
-    title:clean(person.title,180),
-    apollo_id:clean(person.id||person.person_id,100),
-    organization:clean(person.organization?.name||person.organization_name,180),
-    credits_used:Number(body.credits_consumed||body.credit_usage?.total_credits||0)||0
-  };
-}
-
-async function matchIndividual({key,name,domain,linkedin='',id=''}){
-  const url=new URL(APOLLO_MATCH);
-  if(id)url.searchParams.set('id',id);else{url.searchParams.set('name',name);url.searchParams.set('domain',domain);if(linkedin)url.searchParams.set('linkedin_url',linkedin)}
-  url.searchParams.set('reveal_personal_emails','false');
-  url.searchParams.set('reveal_phone_number','false');
-  const response=await apolloJson(url,key);
-  return {...response,result:response.ok?matchResult(response.body):null};
-}
-
-async function searchExactPerson({key,name,domain,title=''}){
-  const url=new URL(APOLLO_SEARCH);
-  url.searchParams.append('q_organization_domains_list[]',domain);
-  url.searchParams.set('q_keywords',[name,title].filter(Boolean).join(' '));
-  url.searchParams.set('include_similar_titles','true');
-  url.searchParams.set('page','1');url.searchParams.set('per_page','10');
-  const response=await apolloJson(url,key);
-  if(!response.ok)return {...response,candidate:null};
-  const people=Array.isArray(response.body.people)?response.body.people:[];
-  const exact=people.find(p=>nameKey(p.name||[p.first_name,p.last_name].filter(Boolean).join(' '))===nameKey(name));
-  return {...response,candidate:exact||people[0]||null};
-}
+async function hunter(name,dom){const key=process.env.HUNTER_API_KEY;if(!key)return {status:'NOT_CONFIGURED'};const parts=clean(name,180).split(' ').filter(Boolean),first=parts.shift()||'',last=parts.join(' ');if(!first||!last)return {status:'SKIPPED'};const u=new URL('https://api.hunter.io/v2/email-finder');u.searchParams.set('domain',dom);u.searchParams.set('first_name',first);u.searchParams.set('last_name',last);u.searchParams.set('api_key',key);const r=await json(u);const d=r.body?.data||{};return {status:r.ok?'SUCCESS':`HTTP_${r.status}`,email:email(d.email),score:Number(d.score)||0,source:d.sources?.[0]?.uri||'',raw_status:d.verification?.status||d.status||''}}
+async function verifyHunter(addr){const key=process.env.HUNTER_API_KEY;if(!key||!addr)return {status:'SKIPPED'};const u=new URL('https://api.hunter.io/v2/email-verifier');u.searchParams.set('email',addr);u.searchParams.set('api_key',key);const r=await json(u);const d=r.body?.data||{};return {status:r.ok?'SUCCESS':`HTTP_${r.status}`,result:d.status||d.result||'',score:Number(d.score)||0}}
+async function apollo(name,dom,linkedin=''){const key=process.env.APOLLO_API_KEY;if(!key)return {status:'NOT_CONFIGURED'};const u=new URL('https://api.apollo.io/api/v1/people/match');u.searchParams.set('name',name);u.searchParams.set('domain',dom);if(linkedin)u.searchParams.set('linkedin_url',linkedin);u.searchParams.set('reveal_personal_emails','false');u.searchParams.set('reveal_phone_number','false');const r=await json(u,{method:'POST',headers:{accept:'application/json','content-type':'application/json','x-api-key':key}});const p=r.body?.person||{};return {status:r.ok?'SUCCESS':r.status===403?'PLAN_UNAVAILABLE':`HTTP_${r.status}`,email:email(p.email),linkedin:clean(p.linkedin_url,500),title:clean(p.title,180),email_status:clean(p.email_status,60)}}
+function publicContacts(row){const e=email(row.email),p=phone(row.phone);return {email:e,phone:p,email_status:e?'SAVED_PUBLIC':'',phone_status:p?'SAVED_PUBLIC':'',source:row.source||'Saved public evidence'}}
+function predicted(name,dom,known=[]){const parts=clean(name,180).toLowerCase().replace(/[^a-z0-9 ]/g,'').split(/\s+/).filter(Boolean);if(parts.length<2)return '';const f=parts[0],l=parts.at(-1),patterns=[`${f}.${l}@${dom}`,`${f[0]}${l}@${dom}`,`${f}${l}@${dom}`];const domainEmails=known.map(email).filter(x=>x.endsWith(`@${dom}`));for(const candidate of patterns){const local=candidate.split('@')[0];const style=local.includes('.')?'dot':local[0]===f[0]?'initial':'concat';if(domainEmails.some(x=>{const s=x.split('@')[0];return style==='dot'?s.includes('.'):style==='initial'?!s.includes('.')&&s.length>2:!s.includes('.')}))return candidate}return ''}
 
 export default async function handler(req,res){
-  if(!requireAdmin(req,res))return;
-  if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
-  const key=process.env.APOLLO_API_KEY;
-  if(!key)return res.status(400).json({error:'APOLLO_API_KEY is not configured'});
-  const buyerId=clean(req.body?.buyer_id,100);if(!buyerId)return res.status(400).json({error:'buyer_id is required'});
-  const sql=db();
-  try{
-    const row=(await sql`select b.*,a.organization_id,a.domain account_domain,a.name account_name,ro.domain organization_domain,ro.source_url organization_source_url,ro.name organization_name from buyers b join accounts a on a.id=b.account_id left join retail_organizations ro on ro.id=a.organization_id where b.id=${buyerId} limit 1`)[0];
-    if(!row)return res.status(404).json({error:'Buyer was not found'});
-    const domain=normalizeDomain(row.organization_domain||row.account_domain||row.organization_source_url);
-    if(!domain)return res.status(400).json({error:'This account needs a valid retailer domain before Apollo deep search can run'});
-    const attempts=[];
-    const matched=await matchIndividual({key,name:row.name,domain,linkedin:row.linkedin||''});
-    attempts.push({type:'individual_match',http_status:matched.status,match_confidence:matched.result?.match_confidence||'',email_found:Boolean(matched.result?.email)});
-    if(matched.status===401||matched.status===403){
-      return res.status(200).json({status:'APOLLO_FORBIDDEN',buyer:row,attempts,http_status:matched.status,message:'Apollo rejected People Enrichment for the configured API key. Check that the key is valid and that the Apollo plan/API permissions include People Enrichment.'});
-    }
-    let result=matched.result;
-    if(!matched.ok||!result?.email){
-      const searched=await searchExactPerson({key,name:row.name,domain,title:row.title||''});
-      attempts.push({type:'exact_people_search',http_status:searched.status,candidate_found:Boolean(searched.candidate)});
-      if(searched.status===401||searched.status===403){
-        return res.status(200).json({status:'APOLLO_FORBIDDEN',buyer:row,attempts,http_status:searched.status,message:'Apollo rejected People Search/Enrichment for the configured API key. Check the Apollo API key and plan permissions.'});
-      }
-      const apolloId=clean(searched.candidate?.id||searched.candidate?.person_id,100);
-      if(apolloId){
-        const byId=await matchIndividual({key,name:row.name,domain,id:apolloId});
-        attempts.push({type:'apollo_id_match',http_status:byId.status,match_confidence:byId.result?.match_confidence||'',email_found:Boolean(byId.result?.email)});
-        if(byId.status===401||byId.status===403){
-          return res.status(200).json({status:'APOLLO_FORBIDDEN',buyer:row,attempts,http_status:byId.status,message:'Apollo found a candidate but rejected the enrichment request for the configured API key or plan.'});
-        }
-        if(byId.ok&&(byId.result?.email||!result))result=byId.result;
-      }
-    }
-    if(!result)return res.status(200).json({status:'NO_MATCH',buyer:row,attempts,message:'Apollo did not return a person match for this buyer.'});
-    const email=result.email||row.email||'',linkedin=result.linkedin||row.linkedin||'',title=result.title||row.title||'',confidence=result.email?Math.max(Number(row.confidence)||0,94):Number(row.confidence)||0;
-    const notes=clean(`${row.notes||''}${row.notes?' | ':''}Apollo individual enrichment: ${result.match_confidence||'unknown'} match${result.email_status?`, email ${result.email_status}`:''}.`,1000);
-    const updated=(await sql`update buyers set email=${email},linkedin=${linkedin},title=${title},source=${result.email?'Apollo Deep Buyer Search':row.source},source_url=${linkedin||row.source_url},confidence=${confidence},verification_status=${result.email?'REVIEW_REQUIRED':row.verification_status},notes=${notes},updated_at=now() where id=${buyerId} returning *`)[0];
-    return res.status(200).json({status:result.email?'EMAIL_FOUND':'MATCH_NO_EMAIL',buyer:updated,apollo:{match_confidence:result.match_confidence,email_status:result.email_status,apollo_id:result.apollo_id,credits_used:result.credits_used},attempts,message:result.email?'Apollo returned a work email and Launchpad36 saved it.':'Apollo matched the buyer but did not return a work email.'});
-  }catch(error){console.error('buyer deep search failed',{message:error?.message||String(error),buyer_id:buyerId});return res.status(500).json({error:'Deep buyer search could not be completed'})}
+ if(!requireAdmin(req,res))return;if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
+ const buyerId=clean(req.body?.buyer_id,100);if(!buyerId)return res.status(400).json({error:'buyer_id is required'});const sql=db();
+ try{
+  const row=(await sql`select b.*,a.organization_id,a.domain account_domain,a.name account_name,ro.domain organization_domain,ro.source_url organization_source_url,ro.name organization_name from buyers b join accounts a on a.id=b.account_id left join retail_organizations ro on ro.id=a.organization_id where b.id=${buyerId} limit 1`)[0];if(!row)return res.status(404).json({error:'Buyer was not found'});
+  const dom=domain(row.organization_domain||row.account_domain||row.organization_source_url);if(!dom)return res.status(400).json({error:'Account needs a valid domain'});
+  const attempts=[],saved=publicContacts(row);let bestEmail=saved.email,bestPhone=saved.phone,emailStatus=saved.email_status,phoneStatus=saved.phone_status,source=saved.source,confidence=Number(row.confidence)||0;
+  if(!bestEmail){const h=await hunter(row.name,dom);attempts.push({provider:'Hunter Email Finder',status:h.status,found:Boolean(h.email),score:h.score});if(h.email){const v=await verifyHunter(h.email);attempts.push({provider:'Hunter Email Verifier',status:v.status,result:v.result,score:v.score});bestEmail=h.email;emailStatus=/valid|accept_all/i.test(v.result)?'VERIFIED':'FOUND_UNVERIFIED';source='Hunter';confidence=Math.max(confidence,/valid/i.test(v.result)?96:Math.min(90,h.score||80));}}
+  if(!bestEmail){const a=await apollo(row.name,dom,row.linkedin||'');attempts.push({provider:'Apollo (optional)',status:a.status,found:Boolean(a.email)});if(a.email){bestEmail=a.email;emailStatus=/verified/i.test(a.email_status)?'VERIFIED':'FOUND_UNVERIFIED';source='Apollo';confidence=Math.max(confidence,94);}}
+  if(!bestEmail){const peers=await sql`select email from buyers b join accounts a on a.id=b.account_id where a.organization_id=${row.organization_id} and b.email is not null and b.email<>'' limit 50`;const guess=predicted(row.name,dom,peers.map(x=>x.email));if(guess){bestEmail=guess;emailStatus='PREDICTED_NOT_VERIFIED';source='Corporate email pattern';confidence=Math.max(confidence,68);attempts.push({provider:'Corporate email pattern',status:'PREDICTED',found:true});}}
+  // Phone waterfall is deliberately evidence-only: saved/public direct number first. Provider phone reveals can be added behind explicit paid-provider consent; never infer a personal number.
+  if(bestPhone)attempts.push({provider:'Public/saved phone',status:'FOUND',type:'public_or_saved'});else attempts.push({provider:'Phone waterfall',status:'NO_VERIFIED_DIRECT_NUMBER',note:'No direct phone is inferred. Corporate switchboard may be stored separately when sourced.'});
+  const notes=clean(`${row.notes||''}${row.notes?' | ':''}Deep contact waterfall: email ${emailStatus||'not found'}; phone ${phoneStatus||'not found'}.`,1200);
+  const updated=(await sql`update buyers set email=${bestEmail||row.email||''},phone=${bestPhone||row.phone||''},source=${bestEmail?source:row.source},confidence=${confidence},verification_status=${emailStatus==='VERIFIED'?'REVIEW_REQUIRED':row.verification_status},notes=${notes},updated_at=now() where id=${buyerId} returning *`)[0];
+  return res.status(200).json({status:bestEmail||bestPhone?'CONTACT_DATA_FOUND':'NO_CONTACT_DATA',buyer:updated,contact:{email:bestEmail||'',email_status:emailStatus||'NOT_FOUND',phone:bestPhone||'',phone_status:phoneStatus||'NOT_FOUND',source},attempts,message:bestEmail?`Email ${emailStatus==='VERIFIED'?'verified':'found'} via ${source}.`:'No verified email was found. Public buyer identity remains saved.'});
+ }catch(e){console.error('buyer contact waterfall failed',{message:e?.message||String(e),buyer_id:buyerId});return res.status(500).json({error:'Deep buyer contact search could not be completed'})}
 }
