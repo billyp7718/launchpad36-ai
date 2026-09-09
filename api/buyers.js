@@ -4,6 +4,7 @@ const clean=(value,max=300)=>String(value||'').replace(/\s+/g,' ').trim().slice(
 export default async function handler(req,res){
  try{
   if(!requireAdmin(req,res)) return;
+  res.setHeader('Cache-Control','no-store, max-age=0');
   if(req.method==='GET'){
     const sql=db(),account=req.query.account_id||null,organization=req.query.organization_id||null;
     const rows=organization?await sql`select b.* from buyers b join accounts a on a.id=b.account_id where a.organization_id=${organization} order by b.updated_at desc`
