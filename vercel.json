@@ -1,9 +1,4 @@
 {
-  "routes": [
-    { "src": "/", "dest": "/api/app-shell" },
-    { "src": "/index.html", "dest": "/api/app-shell" },
-    { "handle": "filesystem" }
-  ],
   "crons": [
     {
       "path": "/api/weekly-refresh",
