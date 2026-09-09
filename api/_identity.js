@@ -35,10 +35,17 @@ export async function ensureIdentitySchema(sql=db()){
     organization_id uuid not null references retail_organizations(id) on delete cascade,
     owner_user_id uuid references manufacturer_members(id) on delete set null,
     team_id uuid references manufacturer_teams(id) on delete set null,
-    relationship_status text default '', account_owner text default '', notes text default '', strategy jsonb not null default '{}'::jsonb,
-    created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
-    unique(manufacturer_id,organization_id,team_id,owner_user_id)
+    visibility text not null default 'tenant', relationship_status text default '', account_owner text default '', notes text default '', strategy jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(), updated_at timestamptz not null default now()
   )`;
+  await sql`alter table tenant_account_overlays add column if not exists visibility text not null default 'tenant'`;
+  await sql`create index if not exists tenant_account_overlay_scope_idx on tenant_account_overlays(manufacturer_id,organization_id,visibility,team_id,owner_user_id,updated_at desc)`;
+  await sql`create table if not exists tenant_activity_log(
+    id bigserial primary key, manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+    user_id uuid references manufacturer_members(id) on delete set null, action text not null, subject_type text not null,
+    subject_id text default '', metadata jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+  )`;
+  await sql`create index if not exists tenant_activity_log_idx on tenant_activity_log(manufacturer_id,created_at desc)`;
  })().catch(e=>{schemaReady=null;throw e});
  return schemaReady;
 }
