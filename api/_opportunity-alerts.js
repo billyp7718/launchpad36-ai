@@ -10,10 +10,10 @@ const flags=p=>{const s=[p?.availability,p?.purchase_channel,p?.channel,p?.store
 export async function ensureOpportunityAlerts(sql=db()){
  await sql`create table if not exists opportunity_alerts(
    id bigserial primary key,
-   manufacturer_id text not null,
-   organization_id text,
-   account_id text,
-   opportunity_id text,
+   manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+   organization_id uuid references retail_organizations(id) on delete cascade,
+   account_id uuid references accounts(id) on delete set null,
+   opportunity_id uuid references opportunity_workspaces(id) on delete set null,
    change_event_id bigint not null,
    alert_type text not null,
    severity text not null default 'medium',
@@ -34,6 +34,24 @@ export async function ensureOpportunityAlerts(sql=db()){
    updated_at timestamptz not null default now(),
    unique(manufacturer_id,change_event_id)
  )`;
+ await sql.unsafe(`do $$ begin
+   if exists(select 1 from information_schema.columns where table_schema='public' and table_name='opportunity_alerts' and column_name='manufacturer_id' and data_type='text')
+      and not exists(select 1 from opportunity_alerts where manufacturer_id is null or manufacturer_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') then
+     alter table opportunity_alerts alter column manufacturer_id type uuid using manufacturer_id::uuid;
+   end if;
+   if exists(select 1 from information_schema.columns where table_schema='public' and table_name='opportunity_alerts' and column_name='organization_id' and data_type='text')
+      and not exists(select 1 from opportunity_alerts where organization_id is not null and organization_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') then
+     alter table opportunity_alerts alter column organization_id type uuid using organization_id::uuid;
+   end if;
+   if exists(select 1 from information_schema.columns where table_schema='public' and table_name='opportunity_alerts' and column_name='account_id' and data_type='text')
+      and not exists(select 1 from opportunity_alerts where account_id is not null and account_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') then
+     alter table opportunity_alerts alter column account_id type uuid using account_id::uuid;
+   end if;
+   if exists(select 1 from information_schema.columns where table_schema='public' and table_name='opportunity_alerts' and column_name='opportunity_id' and data_type='text')
+      and not exists(select 1 from opportunity_alerts where opportunity_id is not null and opportunity_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') then
+     alter table opportunity_alerts alter column opportunity_id type uuid using opportunity_id::uuid;
+   end if;
+ end $$`);
  await sql`create index if not exists opportunity_alerts_mfr_status_idx on opportunity_alerts(manufacturer_id,status,created_at desc)`;
 }
 
