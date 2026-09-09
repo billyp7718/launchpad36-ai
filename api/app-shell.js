@@ -10,7 +10,8 @@ export default function handler(req,res){
       '/buyer-coverage-ui.js',
       '/route-fit-ui.js',
       '/deep-buyer-search-ui-v3.js',
-      '/assortment-intelligence-ui.js'
+      '/assortment-intelligence-ui.js',
+      '/opportunity-alerts-ui.js'
     ].map(src=>`<script src="${src}" defer></script>`).join('');
     const marker='</body>';
     const index=html.lastIndexOf(marker);
