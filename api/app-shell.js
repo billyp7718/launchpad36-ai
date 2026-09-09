@@ -11,7 +11,8 @@ export default function handler(req,res){
       '/route-fit-ui.js',
       '/deep-buyer-search-ui-v3.js',
       '/assortment-intelligence-ui.js',
-      '/opportunity-alerts-ui.js'
+      '/opportunity-alerts-ui.js',
+      '/multi-user-ui.js'
     ].map(src=>`<script src="${src}" defer></script>`).join('');
     const marker='</body>';
     const index=html.lastIndexOf(marker);
