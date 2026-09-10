@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { access, readFile } from 'node:fs/promises';
-import { normalizeFirecrawlSearch } from '../api/catalog-website.js';
+import { normalizeFirecrawlSearch, filterCatalogCandidates, extractCatalogPages } from '../api/catalog-website.js';
 import { validateCatalogRows } from '../api/catalog-import.js';
 import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
 import { validateCommercialObservation, livingHash, refreshTier } from '../api/_living-intelligence.js';
@@ -50,6 +50,36 @@ test('normalizes common and nested Firecrawl search response shapes',()=>{
   const payload={data:{web:{results:[{url:'https://vendor.example/p/1',title:'One'}]},items:{pages:[{link:'https://vendor.example/p/2',description:'Two'}]}},result:{metadata:{sourceURL:'https://vendor.example/p/3',title:'Three'}}};
   assert.deepEqual(normalizeFirecrawlSearch(payload).map(x=>x.url),['https://vendor.example/p/1','https://vendor.example/p/2','https://vendor.example/p/3']);
   assert.deepEqual(normalizeFirecrawlSearch({data:{message:'no array'}}),[]);
+});
+
+test('catalog discovery rejects discussion and support noise and ranks product pages first',()=>{
+  const rows=[
+    {url:'https://vendor.example/forum/topic/speaker-help',title:'Speaker discussion'},
+    {url:'https://vendor.example/support/products/setup',title:'Product setup support'},
+    {url:'https://vendor.example/blog/new-speakers',title:'Speaker news'},
+    {url:'https://vendor.example/products/aurelius-one',title:'Aurelius One',description:'Model specifications and features'},
+    {url:'https://vendor.example/collections/wireless-audio',title:'Wireless Audio Collection'},
+    {url:'https://vendor.example/about',title:'About us'}
+  ];
+  assert.deepEqual(filterCatalogCandidates(rows).map(x=>x.url),['https://vendor.example/products/aurelius-one','https://vendor.example/collections/wireless-audio']);
+});
+
+test('catalog extraction batches pages, retries transient failures, and preserves partial results',async()=>{
+  const previous=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY='x';
+  const calls=new Map(),fetcher=async(_url,options)=>{const input=JSON.parse(options.body).input,first=input.includes('/products/1');calls.set(first?'first':'second',(calls.get(first?'first':'second')||0)+1);const count=calls.get(first?'first':'second');if(first&&count===1)throw Object.assign(new Error('This operation was aborted'),{name:'AbortError'});if(!first)return {ok:false,status:503,json:async()=>({error:{message:'temporarily unavailable'}})};return {ok:true,status:200,json:async()=>({output_text:JSON.stringify({products:[{brand:'Vendor',product_name:'Model One',sku:'V-1',product_family:'Series',category:'Audio',description:'Supported description',msrp:0,map:0,wholesale:0,upc:'',model_number:'V-1',features:[],product_url:'https://vendor.example/products/1',image_url:'',source_url:'https://vendor.example/products/1'}]})})}};
+  try{
+    const candidates=Array.from({length:6},(_,index)=>({url:`https://vendor.example/products/${index+1}`}));
+    const result=await extractCatalogPages({website:'https://vendor.example',candidates,fetcher,timeoutMs:1000});
+    assert.equal(result.rows.length,1);assert.equal(result.selectedPageCount,6);assert.equal(result.extractedPageCount,4);assert.equal(result.failedPages.length,2);assert.equal(result.batchCount,2);assert.equal(result.failedBatchCount,1);assert.equal(result.retriedBatchCount,2);assert.deepEqual([...calls.values()],[2,2]);
+  }finally{if(previous===undefined)Reflect.deleteProperty(process.env,'OPENAI_API_KEY');else Reflect.set(process.env,'OPENAI_API_KEY',previous)}
+});
+
+test('opportunity alerts use UUID identifiers with a targeted legacy text compatibility join',async()=>{
+  const [schema,route]=await Promise.all([readFile(new URL('../api/_opportunity-alerts.js',import.meta.url),'utf8'),readFile(new URL('../api/opportunity-alerts.js',import.meta.url),'utf8')]);
+  for(const column of ['manufacturer_id uuid','organization_id uuid','account_id uuid','opportunity_id uuid'])assert.match(schema,new RegExp(column));
+  assert.match(schema,/alter column organization_id type uuid using organization_id::uuid/);
+  assert.match(route,/ro\.id::text=oa\.organization_id::text/);
+  assert.match(route,/oa\.manufacturer_id=\$\{tenant\.tenant_id\}/);
 });
 
 test('Aurelius Audio demo contains exactly 12 fictional marked rows with local assets',async()=>{
@@ -626,6 +656,7 @@ test('catalog review is editable and enforces the visible extraction limit',asyn
   const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/catalog-website.js',import.meta.url),'utf8')]);
   for(const marker of ['updateCatalogReviewRow','removeCatalogReviewRow','Validate & Import','MAX_CATALOG_PAGES','Extraction complete'])assert.match(ui,new RegExp(marker));
   assert.match(apiSource,/candidates\.length>20/);assert.doesNotMatch(apiSource,/\.slice\(0,20\)/);
+  assert.match(apiSource,/CATALOG_BATCH_SIZE=4/);assert.match(apiSource,/attempt<=2/);assert.match(apiSource,/failed_pages/);assert.match(apiSource,/PARTIAL_SUCCESS/);
 });
 
 test('brands and complete market scenarios can be edited and saved',async()=>{
