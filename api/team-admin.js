@@ -4,9 +4,8 @@ import { resolveTenant } from './_tenant.js';
 import { ensureIdentitySchema, hashPassword, normalizeRole } from './_identity.js';
 
 const clean=(v,m=240)=>String(v||'').trim().slice(0,m);
-const roleRank={viewer:10,member:20,manager:30,admin:40,owner:50};
 function actorRole(req){return normalizeRole(sessionData(req)?.role||'admin')}
-function canGrant(actor,target){if(actor==='owner')return true;if(actor==='admin')return !['owner'].includes(target);return false}
+function canGrant(actor,target){if(actor==='owner')return true;if(actor==='admin')return target!=='owner';return false}
 async function log(sql,tenant,userId,action,subjectType,subjectId,metadata={}){await sql`insert into tenant_activity_log(manufacturer_id,user_id,action,subject_type,subject_id,metadata) values(${tenant.tenant_id},${userId||null},${action},${subjectType},${String(subjectId||'')},${sql.json(metadata)})`}
 export default async function handler(req,res){
  if(!requireAdmin(req,res))return;
@@ -36,6 +35,11 @@ export default async function handler(req,res){
     const member=(await sql`insert into manufacturer_members(manufacturer_id,email,display_name,role,active,password_hash,default_team_id,created_by,updated_at) values(${tenant.tenant_id},${email},${displayName},${role},true,${hash},${teamId},${actorId},now()) on conflict(manufacturer_id,lower(email)) do update set display_name=excluded.display_name,role=excluded.role,active=true,password_hash=excluded.password_hash,default_team_id=excluded.default_team_id,updated_at=now() returning *`)[0];
     if(teamId)await sql`insert into manufacturer_team_members(team_id,member_id,role) values(${teamId},${member.id},'member') on conflict(team_id,member_id) do update set role=excluded.role`;
     await log(sql,tenant,actorId,'USER_CREATED','user',member.id,{email:member.email,role:member.role,team_id:teamId});return res.status(201).json({member:{id:member.id,email:member.email,display_name:member.display_name,role:member.role,default_team_id:member.default_team_id}});
+   }
+   if(action==='reset_password'){
+    const memberId=clean(req.body?.member_id,80),password=String(req.body?.password||'');
+    const target=(await sql`select id,email,role from manufacturer_members where id=${memberId} and manufacturer_id=${tenant.tenant_id} limit 1`)[0];if(!target)return res.status(404).json({error:'User not found'});if(target.role==='owner'&&actor!=='owner')return res.status(403).json({error:'Only an owner can reset an owner password'});
+    const hash=hashPassword(password);await sql`update manufacturer_members set password_hash=${hash},active=true,updated_at=now() where id=${memberId}`;await log(sql,tenant,actorId,'USER_PASSWORD_RESET','user',memberId,{email:target.email});return res.status(200).json({reset:true,member_id:memberId});
    }
    if(action==='set_role'){
     const memberId=clean(req.body?.member_id,80),role=normalizeRole(req.body?.role);if(!canGrant(actor,role))return res.status(403).json({error:'You cannot grant that role'});const target=(await sql`select id,role from manufacturer_members where id=${memberId} and manufacturer_id=${tenant.tenant_id} limit 1`)[0];if(!target)return res.status(404).json({error:'User not found'});if(target.role==='owner'&&actor!=='owner')return res.status(403).json({error:'Only an owner can change another owner'});if(actorId&&String(actorId)===memberId&&role!=='owner'&&actor==='owner')return res.status(400).json({error:'Transfer ownership before reducing your own owner role'});const row=(await sql`update manufacturer_members set role=${role},updated_at=now() where id=${memberId} returning id,email,display_name,role`)[0];await log(sql,tenant,actorId,'USER_ROLE_CHANGED','user',memberId,{from:target.role,to:role});return res.status(200).json({member:row});
