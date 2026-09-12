@@ -14,7 +14,8 @@ export default function handler(req,res){
       '/opportunity-alerts-ui.js',
       '/multi-user-ui.js',
       '/phase2-tenancy-ui.js',
-      '/crm-export-ui.js'
+      '/crm-export-ui.js',
+      '/user-login-recovery-ui.js'
     ].map(src=>`<script src="${src}" defer></script>`).join('');
     const marker='</body>';
     const index=html.lastIndexOf(marker);
