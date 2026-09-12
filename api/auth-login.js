@@ -10,10 +10,17 @@ export default async function handler(req,res){
  const sql=db();
  try{
   await ensureIdentitySchema(sql);
-  let rows=await sql`select mm.*,m.name manufacturer_name from manufacturer_members mm join manufacturers m on m.id=mm.manufacturer_id where lower(mm.email)=${email} and mm.active=true`;
-  if(workspace)rows=rows.filter(r=>String(r.manufacturer_name||'').toLowerCase()===workspace||String(r.manufacturer_id)===workspace);
-  const matches=rows.filter(r=>verifyPassword(password,r.password_hash));
-  if(matches.length!==1)return res.status(401).json({error:matches.length>1?'Multiple workspaces use this login. Enter the workspace name.':'Invalid email or password'});
+  const rows=await sql`select mm.*,m.name manufacturer_name from manufacturer_members mm join manufacturers m on m.id=mm.manufacturer_id where lower(mm.email)=${email}`;
+  const activeRows=rows.filter(r=>r.active===true);
+  const passwordMatches=activeRows.filter(r=>verifyPassword(password,r.password_hash));
+  let matches=passwordMatches;
+  if(passwordMatches.length>1&&workspace){matches=passwordMatches.filter(r=>String(r.manufacturer_name||'').toLowerCase()===workspace||String(r.manufacturer_id)===workspace)}
+  if(matches.length!==1){
+   if(rows.length&&activeRows.length===0)return res.status(403).json({error:'This user account is suspended. Contact your workspace administrator.'});
+   if(passwordMatches.length>1&&!workspace)return res.status(409).json({error:'Multiple workspaces use this login. Enter the workspace name.'});
+   if(passwordMatches.length>1&&workspace&&matches.length!==1)return res.status(401).json({error:'Workspace name did not match this login. Leave it blank unless you use this email in more than one workspace.'});
+   return res.status(401).json({error:'Invalid email or password'});
+  }
   const member=matches[0];
   await sql`update manufacturer_members set last_login_at=now(),updated_at=now() where id=${member.id}`;
   res.setHeader('set-cookie',createSessionCookie({role:member.role,tenant_id:member.manufacturer_id,user_id:member.id,display_name:member.display_name,email:member.email}));
