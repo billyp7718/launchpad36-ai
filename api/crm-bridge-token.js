@@ -3,7 +3,7 @@ import { db } from './_db.js';
 import { requireAdmin, sessionData } from './_auth.js';
 import { resolveTenant } from './_tenant.js';
 
-async function ensure(sql){
+export async function ensureCrmBridgeSchema(sql=db()){
   await sql`create table if not exists crm_bridge_tokens(
     id uuid primary key default gen_random_uuid(),
     manufacturer_id uuid not null references manufacturers(id) on delete cascade,
@@ -19,12 +19,19 @@ async function ensure(sql){
   await sql`create index if not exists crm_bridge_tokens_tenant_idx on crm_bridge_tokens(manufacturer_id,active,created_at desc)`;
 }
 const hash=v=>crypto.createHash('sha256').update(String(v||'')).digest('hex');
+export async function verifyCrmBridgeToken(token,sql=db()){
+  await ensureCrmBridgeSchema(sql);
+  if(!token)return null;
+  const row=(await sql`select id,manufacturer_id,label from crm_bridge_tokens where token_hash=${hash(token)} and active=true limit 1`)[0]||null;
+  if(row)await sql`update crm_bridge_tokens set last_used_at=now() where id=${row.id}`;
+  return row;
+}
 export default async function handler(req,res){
   if(!requireAdmin(req,res))return;
   const tenant=await resolveTenant(req,res);if(!tenant)return;
   const sql=db();
   try{
-    await ensure(sql);
+    await ensureCrmBridgeSchema(sql);
     if(req.method==='GET'){
       const rows=await sql`select id,label,token_prefix,active,created_at,last_used_at,revoked_at from crm_bridge_tokens where manufacturer_id=${tenant.tenant_id} order by created_at desc`;
       return res.status(200).json({tokens:rows,endpoint:'https://launchpad36-ai.vercel.app/api/crm-bridge-feed'});
