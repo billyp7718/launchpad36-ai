@@ -13,6 +13,7 @@ export function sessionData(req){const secret=process.env.ADMIN_SECRET||'';if(!s
 export function isAuthenticated(req){return Boolean(sessionData(req)?.tenant_id)}
 export function isAdmin(req){return ['owner','admin'].includes(String(sessionData(req)?.role||'').toLowerCase())}
 export function isAdminBearer(req){const secret=process.env.ADMIN_SECRET||'';return Boolean(secret)&&safeEqual(bearer(req),secret)}
+export function isCrmSyncBearer(req){const token=process.env.CRM_SYNC_TOKEN||'';return Boolean(token)&&safeEqual(bearer(req),token)}
 export function isCron(req){const secret=process.env.CRON_SECRET||'';return Boolean(secret)&&safeEqual(bearer(req),secret)}
 export function requireUser(req,res){if(isAuthenticated(req)||isAdminBearer(req))return true;res.status(401).json({error:'Authentication required'});return false}
 export function requireAdmin(req,res){if(!process.env.ADMIN_SECRET){res.status(503).json({error:'ADMIN_SECRET is not configured'});return false}if(!isAdmin(req)&&!isAdminBearer(req)){res.status(401).json({error:'Owner or admin authentication required'});return false}return true}
