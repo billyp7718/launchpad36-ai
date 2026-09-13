@@ -13,7 +13,8 @@ export default async function handler(req,res){
   if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});
   const sql=db();
   try{
-    const auth=await verifyCrmBridgeToken(String(req.headers['x-l36-crm-token']||''),sql);
+    const suppliedToken=String(req.headers['x-l36-crm-token']||'').trim()||String(req.headers.authorization||'').replace(/^Bearer\\s+/i,'').trim();
+    const auth=await verifyCrmBridgeToken(suppliedToken,sql);
     if(!auth)return res.status(401).json({error:'Valid CRM bridge token required'});
     const limit=Math.min(Math.max(Number(req.query?.limit)||250,1),500);
     const offset=Math.max(Number(req.query?.offset)||0,0);
