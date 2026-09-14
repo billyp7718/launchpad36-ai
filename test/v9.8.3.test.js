@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { access, readFile } from 'node:fs/promises';
+import { createContext, runInContext } from 'node:vm';
 import { normalizeFirecrawlSearch, filterCatalogCandidates, extractCatalogPages } from '../api/catalog-website.js';
 import { validateCatalogRows } from '../api/catalog-import.js';
 import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
@@ -389,6 +390,19 @@ test('market intelligence UI supports multiple products, channel models and SKU 
   assert.match(source,/class="moProduct" type="checkbox"/);assert.match(source,/class="moRoute" type="checkbox"/);assert.match(source,/routes_to_market/);assert.match(source,/Select All/);
   for(const route of ['retail','direct_b2b','distributor_dealer','mixed'])assert.match(source,new RegExp(`value="${route}"`));
   assert.match(source,/Low Scenario/);assert.match(source,/Base Scenario/);assert.match(source,/High Scenario/);assert.match(source,/Edit Account/);assert.match(source,/api\/market-opportunity/);
+});
+
+test('account opportunity headers sort the full result stably with unknown values last',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8'),snippet=source.match(/const marketOpportunitySort=[\s\S]*?(?=\nfunction marketChannelSummary)/)?.[0]||'';
+  assert.ok(snippet);const context=createContext({$:()=>null,renderMarketResults:()=>''});runInContext(snippet,context);
+  const rows=[{id:'b',name:'Beta',base_manufacturer_revenue:100,fit_score:80},{id:'a2',name:'Alpha',base_manufacturer_revenue:200,fit_score:90},{id:'a1',name:'Alpha',base_manufacturer_revenue:200,fit_score:90},{id:'unknown',name:null,base_manufacturer_revenue:null,fit_score:null}];
+  const sorted=()=>JSON.parse(runInContext(`JSON.stringify(sortMarketOpportunityAccounts(${JSON.stringify(rows)}))`,context));
+  runInContext("setMarketOpportunitySort('account')",context);assert.deepEqual(sorted().map(x=>x.id),['a2','a1','b','unknown']);
+  runInContext("setMarketOpportunitySort('account')",context);assert.deepEqual(sorted().map(x=>x.id),['b','a2','a1','unknown']);
+  runInContext("setMarketOpportunitySort('annual')",context);assert.deepEqual(sorted().map(x=>x.id),['a2','a1','b','unknown']);
+  runInContext("setMarketOpportunitySort('annual')",context);assert.deepEqual(sorted().map(x=>x.id),['b','a2','a1','unknown']);
+  runInContext("setMarketOpportunitySort('fit')",context);assert.deepEqual(sorted().map(x=>x.id),['a2','a1','b','unknown']);
+  assert.match(source,/marketSortHeader\('account','Account'\)/);assert.match(source,/marketSortHeader\('annual','Annual Opportunity'\)/);assert.match(source,/marketSortHeader\('fit','Fit Score'\)/);assert.match(source,/aria-sort/);assert.match(source,/_marketSourceIndex/);
 });
 
 test('market intelligence replaces the redundant find me revenue interface',async()=>{
