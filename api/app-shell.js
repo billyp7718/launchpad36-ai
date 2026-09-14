@@ -1,8 +1,11 @@
 import fs from 'fs';
 import path from 'path';
+import { db } from './_db.js';
+import { seedHighEndAudio } from './_high-end-audio-seed.js';
 
-export default function handler(req,res){
+export default async function handler(req,res){
   try{
+    try{await seedHighEndAudio(db())}catch(seedError){console.error('high-end audio seed failed',{message:seedError?.message||String(seedError)})}
     const htmlPath=path.join(process.cwd(),'index.html');
     let html=fs.readFileSync(htmlPath,'utf8');
     const scripts=[
