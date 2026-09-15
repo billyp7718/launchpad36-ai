@@ -26,12 +26,12 @@ export default async function handler(req,res){
  if(!sessionData(req))return res.status(401).json({error:'Authentication required'});
  const sql=db();
  try{
-  await sql`create table if not exists retail_industry_daily_news(day date primary key,payload jsonb not null,generated_at timestamptz not null default now())`;
-  const today=(await sql`select current_date::text day`)[0]?.day;
-  const cached=(await sql`select payload,generated_at from retail_industry_daily_news where day=current_date limit 1`)[0];
+  await sql`create table if not exists retail_industry_daily_news("day" date primary key,payload jsonb not null,generated_at timestamptz not null default now())`;
+  const today=(await sql`select current_date::text as cache_day`)[0]?.cache_day;
+  const cached=(await sql`select payload,generated_at from retail_industry_daily_news where "day"=current_date limit 1`)[0];
   if(cached)return res.status(200).json({...cached.payload,cached:true,day:today,generated_at:cached.generated_at});
   const payload=await generate();
-  await sql`insert into retail_industry_daily_news(day,payload,generated_at) values(current_date,${sql.json(payload)},now()) on conflict(day) do update set payload=excluded.payload,generated_at=excluded.generated_at`;
+  await sql`insert into retail_industry_daily_news("day",payload,generated_at) values(current_date,${sql.json(payload)},now()) on conflict("day") do update set payload=excluded.payload,generated_at=excluded.generated_at`;
   return res.status(200).json({...payload,cached:false,day:today});
  }catch(e){console.error('retail industry news failed',{message:e?.message||String(e)});return res.status(500).json({error:clean(e.message||'Retail industry news failed',300)})}
 }

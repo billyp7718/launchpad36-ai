@@ -22,6 +22,18 @@ test('market report email normalizes and limits recipient addresses',()=>{
   assert.equal(reportRecipients(Array.from({length:20},(_,i)=>`x${i}@example.com`).join(',')).length,10);
 });
 
+test('retail industry update uses PostgreSQL-safe daily cache SQL and keeps authenticated attributable research',async()=>{
+  const source=await readFile(new URL('../api/retail-industry-news.js',import.meta.url),'utf8');
+  assert.match(source,/sessionData\(req\)/);
+  assert.match(source,/retail_industry_daily_news\("day" date primary key/);
+  assert.match(source,/select current_date::text as cache_day/);
+  assert.match(source,/where "day"=current_date/);
+  assert.match(source,/on conflict\("day"\)/);
+  assert.doesNotMatch(source,/current_date::text day/);
+  for(const topic of ['retailer strategy','merchandising','consumer electronics','audio\/video','appliances','pricing\/promotions','distribution','store openings\/closures'])assert.match(source,new RegExp(topic));
+  assert.match(source,/allowed\.has\(norm\(s\.source_url\)\)/);
+});
+
 test('market analysis output removes markdown and decorative separator symbols',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/function cleanReportNarrative/);
