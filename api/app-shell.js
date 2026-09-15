@@ -20,7 +20,8 @@ export default async function handler(req,res){
       '/crm-export-ui.js',
       '/user-login-recovery-ui.js',
       '/commercial-ui-polish.js',
-      '/retail-industry-news-ui.js'
+      '/retail-industry-news-ui.js',
+      '/market-opportunity-controls-ui.js'
     ].map(src=>`<script src="${src}" defer></script>`).join('');
     const marker='</body>';
     const index=html.lastIndexOf(marker);
