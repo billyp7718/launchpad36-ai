@@ -2,10 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import { db } from './_db.js';
 import { seedHighEndAudio } from './_high-end-audio-seed.js';
+import { seedAceHardware } from './_ace-hardware-seed.js';
 
 export default async function handler(req,res){
   try{
     try{await seedHighEndAudio(db())}catch(seedError){console.error('high-end audio seed failed',{message:seedError?.message||String(seedError)})}
+    try{await seedAceHardware(db())}catch(seedError){console.error('Ace Hardware seed failed',{message:seedError?.message||String(seedError)})}
     const htmlPath=path.join(process.cwd(),'index.html');
     let html=fs.readFileSync(htmlPath,'utf8');
     const scripts=[
