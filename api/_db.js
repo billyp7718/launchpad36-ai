@@ -37,17 +37,28 @@ export async function upsertAccount(a={}) {
 export async function upsertBuyer(b={}) {
   const sql=db();
   const rows=await sql`
-    insert into buyers (account_id, name, title, email, phone, linkedin, category, source, source_url, confidence, verified_at, status, notes, observed_at, last_verified_at, evidence_type, verification_status, updated_at)
+    insert into buyers (account_id, name, title, email, phone, linkedin, category, department, category_scope, subcategory_scope, buyer_role, source, source_url, confidence, identity_confidence, category_confidence, category_evidence_url, category_evidence_source, category_last_verified, category_verification_status, verified_at, status, notes, observed_at, last_verified_at, evidence_type, verification_status, updated_at)
     values (
       ${b.account_id||null}, ${b.name||''}, ${b.title||''}, ${b.email||''}, ${b.phone||''},
-      ${b.linkedin||''}, ${b.category||''}, ${b.source||'public'}, ${b.source_url||''},
-      ${Number(b.confidence)||0}, ${b.verified_at||null}, ${b.status||'Current'}, ${b.notes||''},
+      ${b.linkedin||''}, ${b.category||b.category_scope||''}, ${b.department||''}, ${b.category_scope||b.category||''}, ${b.subcategory_scope||''}, ${b.buyer_role||'UNCONFIRMED'}, ${b.source||'public'}, ${b.source_url||''},
+      ${Number(b.confidence??b.identity_confidence)||0}, ${Number(b.identity_confidence??b.confidence)||0}, ${Number(b.category_confidence)||0}, ${b.category_evidence_url||''}, ${b.category_evidence_source||''}, ${b.category_last_verified||null}, ${b.category_verification_status||'UNCONFIRMED'}, ${b.verified_at||null}, ${b.status||'Current'}, ${b.notes||''},
       ${b.observed_at||b.verified_at||new Date().toISOString()}, ${b.last_verified_at||b.verified_at||null},
       ${b.evidence_type||'buyer'}, ${b.verification_status||'UNKNOWN'}, now()
     )
     on conflict (account_id, lower(name), lower(title)) do update set
-      email=excluded.email, phone=excluded.phone, linkedin=excluded.linkedin, category=excluded.category,
+      email=excluded.email, phone=excluded.phone, linkedin=excluded.linkedin,
+      category=case when buyers.category='' or excluded.category_evidence_url<>'' then excluded.category else buyers.category end,
+      department=case when excluded.department<>'' and lower(excluded.department)<>'unconfirmed' then excluded.department else buyers.department end,
+      category_scope=case when buyers.category_scope='' or excluded.category_evidence_url<>'' then excluded.category_scope else buyers.category_scope end,
+      subcategory_scope=case when buyers.subcategory_scope='' or excluded.category_evidence_url<>'' then excluded.subcategory_scope else buyers.subcategory_scope end,
+      buyer_role=case when excluded.buyer_role<>'UNCONFIRMED' then excluded.buyer_role else buyers.buyer_role end,
       source=excluded.source, source_url=excluded.source_url, confidence=excluded.confidence,
+      identity_confidence=excluded.identity_confidence,
+      category_confidence=case when excluded.category_evidence_url<>'' then excluded.category_confidence else buyers.category_confidence end,
+      category_evidence_url=case when excluded.category_evidence_url<>'' then excluded.category_evidence_url else buyers.category_evidence_url end,
+      category_evidence_source=case when excluded.category_evidence_url<>'' then excluded.category_evidence_source else buyers.category_evidence_source end,
+      category_last_verified=case when excluded.category_evidence_url<>'' then excluded.category_last_verified else buyers.category_last_verified end,
+      category_verification_status=case when excluded.category_evidence_url<>'' then excluded.category_verification_status else buyers.category_verification_status end,
       verified_at=excluded.verified_at, status=excluded.status, notes=excluded.notes,
       observed_at=excluded.observed_at, last_verified_at=excluded.last_verified_at,
       evidence_type=excluded.evidence_type, verification_status=excluded.verification_status, updated_at=now()
