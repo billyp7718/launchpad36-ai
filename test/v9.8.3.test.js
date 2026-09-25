@@ -11,7 +11,7 @@ import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refr
 import { calculateMarketOpportunity, calculateMultiRouteMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
-import { normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources } from '../api/_openai-research.js';
+import { buyerCategorySearchTerms, normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources } from '../api/_openai-research.js';
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
@@ -255,6 +255,40 @@ test('OpenAI buyer research retains only source-backed exact-account candidates'
   assert.deepEqual(responseWebSources(payload).map(x=>x.url),['https://example.com/home-depot-buyer']);
   const result=normalizeOpenAIResearch(payload,{account:'Home Depot'});
   assert.equal(result.status,'SUCCESS');assert.equal(result.people.length,1);assert.equal(result.people[0].name,'Jane Merchant');assert.equal(result.people[0].verification_status,'REVIEW_REQUIRED');
+});
+
+test('buyer category ownership is verified separately from identity and generic titles fail closed',()=>{
+  const identity='https://retailer.example/leadership',category='https://trade.example/audio-buyer',base={name:'Jane Merchant',title:'Senior Buyer',account:'Example Retailer',department:'',category_scope:'Audio',subcategory_scope:'Speakers',buyer_role:'DIRECT_BUYER',identity_confidence:91,category_confidence:88,category_evidence_url:'',category_evidence_source:'',category_evidence_quote:'',category_last_verified:'',category_verification_status:'VERIFIED',source_url:identity,source_title:'Leadership',evidence_quote:'Jane Merchant is a current senior buyer.',evidence_date:'2026-09-20',confidence:91,email:'',phone:'',linkedin:'',verification_status:'REVIEW_REQUIRED',rationale:'Current employee.'};
+  const payloadFor=row=>({output:[{type:'web_search_call',action:{sources:[{url:identity,title:'Leadership'},{url:category,title:'Audio trade report'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({status:'FOUND',search_summary:'',category_owner_status:'CONFIRMED',buyer_candidates:[row]})}]}]});
+  const generic=normalizeOpenAIResearch(payloadFor(base),{account:'Example Retailer',category:'Audio'}).people[0];
+  assert.equal(generic.identity_confidence,91);assert.equal(generic.category_verification_status,'UNCONFIRMED');assert.equal(generic.category_confidence,0);assert.equal(generic.department,'Unconfirmed');
+  const supported=normalizeOpenAIResearch(payloadFor({...base,department:'Consumer Electronics',category_evidence_url:category,category_evidence_source:'Audio trade report',category_evidence_quote:'Jane leads speakers and home audio buying.',category_last_verified:'2026-09-20'}),{account:'Example Retailer',category:'Audio'});
+  assert.equal(supported.category_owner_status,'CONFIRMED');assert.equal(supported.people[0].category_verification_status,'VERIFIED');assert.equal(supported.people[0].category_scope,'Audio');assert.equal(supported.people[0].category_confidence,88);
+  const unrelated=normalizeOpenAIResearch(payloadFor({...base,department:'Home',category_scope:'Major Appliances',subcategory_scope:'Refrigeration',category_evidence_url:category,category_evidence_source:'Trade report',category_evidence_quote:'Jane leads major appliance buying.',category_last_verified:'2026-09-20'}),{account:'Example Retailer',category:'Audio'});
+  assert.equal(unrelated.category_owner_status,'NOT_CONFIRMED');
+  for(const synonym of ['home theater','speakers','soundbars','headphones','consumer electronics'])assert.ok(buyerCategorySearchTerms('Audio').includes(synonym));
+});
+
+test('buyer intelligence migration preserves legacy categories without claiming verification',async()=>{
+  const migration=await readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8');
+  for(const column of ['department','category_scope','subcategory_scope','buyer_role','identity_confidence','category_confidence','category_evidence_url','category_evidence_source','category_last_verified','category_verification_status'])assert.match(migration,new RegExp(`buyers add column if not exists ${column}`));
+  assert.match(migration,/update buyers set category_scope=category where category_scope=''/);
+  assert.match(migration,/category_verification_status='UNCONFIRMED',category_confidence=0/);
+  assert.doesNotMatch(migration,/category_verification_status='VERIFIED'.*category_scope=category/s);
+});
+
+test('buyer UI separates department, category, identity and category verification',async()=>{
+  const [deep,coverage,focused]=await Promise.all([readFile(new URL('../deep-buyer-search-ui-v3.js',import.meta.url),'utf8'),readFile(new URL('../buyer-coverage-ui.js',import.meta.url),'utf8'),readFile(new URL('../buyer-category-intelligence-ui.js',import.meta.url),'utf8')]);
+  for(const marker of ['Department:','Category:','Identity verification','Category verification','identity_confidence','category_confidence','Category owner not yet confirmed'])assert.match(deep,new RegExp(marker));
+  assert.match(coverage,/Identity \$\{Number\(b\.identity_confidence/);assert.match(coverage,/Category \$\{Number\(b\.category_confidence/);
+  assert.match(focused,/buyerCategoryFocus/);assert.match(focused,/all_buyers:false/);assert.match(focused,/Category owner not yet confirmed/);
+});
+
+test('buyer category research preserves authentication, tenant resolution and LinkedIn policy',async()=>{
+  const [accountResearch,buyerIntelligence,deepSearch]=await Promise.all([readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../api/buyer-intelligence.js',import.meta.url),'utf8'),readFile(new URL('../api/buyer-deep-search.js',import.meta.url),'utf8')]);
+  for(const source of [accountResearch,buyerIntelligence]){assert.match(source,/requireInternal\(req,res\)/);assert.match(source,/resolveTenant\(req,res/)}
+  assert.match(buyerIntelligence,/verification_enrichment_only/);assert.match(buyerIntelligence,/private_contact_inference:false/);
+  assert.match(deepSearch,/requireAdmin\(req,res\)/);assert.match(deepSearch,/reveal_personal_emails','false'/);assert.match(deepSearch,/reveal_phone_number','false'/);
 });
 
 test('OpenAI buyer research fails closed when citations or structured JSON are missing',()=>{

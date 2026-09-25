@@ -21,7 +21,7 @@ export default async function handler(req,res){
     from retail_organizations ro left join manufacturer_account_targets mat on mat.organization_id=ro.id and mat.manufacturer_id=${tenant.tenant_id}
     left join lateral (
       select count(*)::int buyer_count,max(b.updated_at) buyer_data_updated_at,
-      json_agg(json_build_object('id',b.id,'name',b.name,'title',b.title,'category',b.category,'category_scope',b.category,'email',b.email,'phone',b.phone,'linkedin',b.linkedin,'source_url',b.source_url,'confidence',b.confidence,'verification_status',b.verification_status,'updated_at',b.updated_at) order by b.confidence desc,b.updated_at desc) buyers
+      json_agg(json_build_object('id',b.id,'name',b.name,'title',b.title,'category',b.category,'department',b.department,'category_scope',b.category_scope,'subcategory_scope',b.subcategory_scope,'buyer_role',b.buyer_role,'email',b.email,'phone',b.phone,'linkedin',b.linkedin,'source_url',b.source_url,'confidence',b.confidence,'identity_confidence',b.identity_confidence,'category_confidence',b.category_confidence,'verification_status',b.verification_status,'category_verification_status',b.category_verification_status,'category_evidence_url',b.category_evidence_url,'category_evidence_source',b.category_evidence_source,'category_last_verified',b.category_last_verified,'updated_at',b.updated_at) order by (b.category_verification_status='VERIFIED') desc,b.category_confidence desc,b.identity_confidence desc,b.updated_at desc) buyers
       from accounts a join buyers b on b.account_id=a.id where a.organization_id=ro.id
     ) buyer_summary on true
     where ro.active=true and (${q}='' or ro.name ilike ${'%'+q+'%'} or ro.domain ilike ${'%'+q+'%'})

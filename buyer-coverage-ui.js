@@ -1,10 +1,10 @@
 (()=>{
   const priorRenderAccount360=window.renderAccount360;
 
-  function buyerCategory(b){return String(b?.category_scope||b?.category||'General / Unknown').trim()||'General / Unknown'}
+  function buyerCategory(b){return String(b?.category_verification_status||'UNCONFIRMED')==='UNCONFIRMED'?'Unconfirmed':String(b?.category_scope||'Unconfirmed').trim()||'Unconfirmed'}
   function buyerCoverageHtml(buyers=[],compact=false){
     if(!buyers.length)return '<div class="empty">No saved buyer contacts yet.</div>';
-    const rows=buyers.map(b=>`<div class="item" style="margin-bottom:8px"><div class="workspaceTop"><div><b>${esc(b.name||'Unknown buyer')}</b><div class="muted">${esc(b.title||'Title not available')}</div></div><span class="badge">${esc(buyerCategory(b))}</span></div>${compact?'':`<div class="contactLinks">${b.email?`<a href="mailto:${esc(b.email)}">${esc(b.email)}</a>`:'<span class="muted">Email not found</span>'}${b.phone?`<a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>`:'<span class="muted">Phone not found</span>'}${b.linkedin?`<a href="${esc(b.linkedin)}" target="_blank" rel="noopener noreferrer">LinkedIn</a>`:''}</div><div class="muted" style="margin-top:5px">Confidence ${Number(b.confidence)||0}% · ${esc((b.verification_status||b.status||'REVIEW_REQUIRED').replaceAll('_',' '))}</div>`}</div>`).join('');
+    const rows=buyers.map(b=>`<div class="item" style="margin-bottom:8px"><div class="workspaceTop"><div><b>${esc(b.name||'Unknown buyer')}</b><div class="muted">${esc(b.title||'Title not available')}</div><div class="muted"><b>Department:</b> ${esc(b.department||'Unconfirmed')} · <b>Category:</b> ${esc(buyerCategory(b))}</div></div><span class="badge">${esc(String(b.buyer_role||'UNCONFIRMED').replaceAll('_',' '))}</span></div>${compact?'':`<div class="contactLinks">${b.email?`<a href="mailto:${esc(b.email)}">${esc(b.email)}</a>`:'<span class="muted">Email not found</span>'}${b.phone?`<a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>`:'<span class="muted">Phone not found</span>'}${b.linkedin?`<a href="${esc(b.linkedin)}" target="_blank" rel="noopener noreferrer">LinkedIn</a>`:''}</div><div class="muted" style="margin-top:5px">Identity ${Number(b.identity_confidence??b.confidence)||0}% · ${esc((b.verification_status||b.status||'REVIEW_REQUIRED').replaceAll('_',' '))} · Category ${Number(b.category_confidence)||0}% · ${esc(String(b.category_verification_status||'UNCONFIRMED').replaceAll('_',' '))}</div>`}</div>`).join('');
     return rows;
   }
 
