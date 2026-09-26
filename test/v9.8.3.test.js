@@ -13,6 +13,7 @@ import { calculateMarketOpportunity, calculateMultiRouteMarketOpportunity, categ
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { buyerCategorySearchTerms, normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources } from '../api/_openai-research.js';
+import { detectBuyerRelationshipChange, relationshipDisposition } from '../api/_buyer-relationships.js';
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
@@ -288,6 +289,28 @@ test('buyer intelligence migration preserves legacy categories without claiming 
   assert.match(migration,/update buyers set category_scope=category where category_scope=''/);
   assert.match(migration,/category_verification_status='UNCONFIRMED',category_confidence=0/);
   assert.doesNotMatch(migration,/category_verification_status='VERIFIED'.*category_scope=category/s);
+});
+
+test('buyer relationship migration is additive, append-only and revalidation-ready',async()=>{
+  const migration=await readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8');
+  for(const column of ['employment_verification_status','employment_evidence_url','employment_last_verified','relationship_review_reason','replacement_search_required'])assert.match(migration,new RegExp(`buyers add column if not exists ${column}`));
+  assert.match(migration,/create table if not exists buyer_category_relationships/);
+  assert.match(migration,/create trigger buyer_category_relationships_immutable/);
+  assert.doesNotMatch(migration,/drop\s+(table|column)|truncate\s+|delete\s+from\s+(buyers|accounts|retail_organizations)/i);
+});
+
+test('buyer relationship changes preserve verified scope and initiate replacement research',()=>{
+  const previous={id:'buyer-1',title:'Senior Buyer',department:'Consumer Electronics',category_scope:'Audio',category_verification_status:'VERIFIED'};
+  assert.equal(detectBuyerRelationshipChange(previous,{...previous,employment_verification_status:'STALE'}),'BUYER_LEFT_ACCOUNT');
+  const changed=relationshipDisposition(previous,{...previous,category_scope:'Major Appliances',category_verification_status:'VERIFIED',employment_verification_status:'VERIFIED'});
+  assert.equal(changed.change_type,'CATEGORY_RESPONSIBILITY_CHANGED');assert.equal(changed.category_verification_status,'CONFLICTING');assert.equal(changed.preserve_verified_scope,true);assert.equal(changed.replacement_search_required,true);
+  const unconfirmed=relationshipDisposition(previous,{...previous,category_verification_status:'UNCONFIRMED',employment_verification_status:'VERIFIED'});
+  assert.equal(unconfirmed.change_type,'RELATIONSHIP_NEEDS_VERIFICATION');assert.equal(unconfirmed.replacement_search_required,true);
+});
+
+test('weekly buyer relationship revalidation targets stale, conflicting and aging ownership',async()=>{
+  const source=await readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8');
+  for(const marker of ['BUYER_REVALIDATION_WEEKLY_LIMIT','replacement_search_required','category_last_verified','buyer_relationship_revalidation','/api/buyer-intelligence'])assert.match(source,new RegExp(marker));
 });
 
 test('buyer UI separates department, category, identity and category verification',async()=>{
