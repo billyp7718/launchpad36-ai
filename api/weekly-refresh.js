@@ -19,7 +19,7 @@ export default async function handler(req,res){
   if(auth!==`Bearer ${secret}`) return res.status(401).json({error:'Unauthorized'});
   const sql=db();
   const run=(await sql`insert into refresh_runs(job_type,status) values('weekly-buyer-product-refresh','started') returning id`)[0];
-  let ap=0,bu=0,pu=0,ev=0,retailerDiscovery={status:'SKIPPED',added:0,updated:0}; const errors=[];
+  let ap=0,bu=0,pu=0,ev=0,retailerDiscovery={status:'SKIPPED',added:0,updated:0},buyerRelationshipRevalidation={status:'SKIPPED',checked:0,errors:[]}; const errors=[];
   try{
     const discoveryRun=(await sql`insert into refresh_runs(job_type,status) values('weekly-retailer-discovery','started') returning id`)[0];
     try{retailerDiscovery=await runRetailerDiscovery(sql,{limit:Number(process.env.WEEKLY_RETAILER_DISCOVERY_LIMIT)||12});await sql`update refresh_runs set status=${retailerDiscovery.status.startsWith('COMPLETED')?'completed':retailerDiscovery.status.toLowerCase()},accounts_processed=${retailerDiscovery.added+retailerDiscovery.updated},errors=${sql.json(retailerDiscovery.errors||[])},finished_at=now() where id=${discoveryRun.id}`;if(retailerDiscovery.errors?.length)errors.push(...retailerDiscovery.errors.map(x=>({retailer_discovery:x})))}catch(error){await sql`update refresh_runs set status='failed',errors=${sql.json([{fatal:String(error.message||error).slice(0,300)}])},finished_at=now() where id=${discoveryRun.id}`;errors.push({retailer_discovery:{error:String(error.message||error).slice(0,300)}})}
@@ -60,8 +60,11 @@ export default async function handler(req,res){
         }
       }catch(e){errors.push({account:a.name,error:e.message})}
     }
+    const revalidationLimit=Math.min(Math.max(Number(process.env.BUYER_REVALIDATION_WEEKLY_LIMIT)||25,1),100),dueRelationships=await sql`select distinct on (b.account_id,coalesce(nullif(b.category_scope,''),nullif(b.category,''))) b.account_id,coalesce(nullif(b.category_scope,''),nullif(b.category,'')) category_scope from buyers b join accounts a on a.id=b.account_id where a.active=true and a.domain<>'' and coalesce(nullif(b.category_scope,''),nullif(b.category,'')) is not null and (b.replacement_search_required=true or b.category_verification_status in ('VERIFIED','PROBABLE','STALE','CONFLICTING') and (b.category_last_verified is null or b.category_last_verified<now()-interval '30 days')) order by b.account_id,coalesce(nullif(b.category_scope,''),nullif(b.category,'')),b.replacement_search_required desc,b.category_last_verified nulls first limit ${revalidationLimit}`;
+    buyerRelationshipRevalidation={status:'COMPLETE',checked:0,errors:[]};
+    for(const due of dueRelationships){try{const response=await fetch(`${origin(req)}/api/buyer-intelligence`,{method:'POST',headers:{authorization:`Bearer ${secret}`,'content-type':'application/json'},body:JSON.stringify({account_id:due.account_id,category:due.category_scope,revalidation:true})});buyerRelationshipRevalidation.checked++;if(!response.ok)buyerRelationshipRevalidation.errors.push({account_id:due.account_id,category:due.category_scope,status:response.status})}catch(error){buyerRelationshipRevalidation.errors.push({account_id:due.account_id,category:due.category_scope,error:String(error.message||error).slice(0,240)})}}
     await sql`update refresh_runs set status='completed',accounts_processed=${ap},buyers_upserted=${bu},products_upserted=${pu},errors=${sql.json(errors)},finished_at=now() where id=${run.id}`;
-    res.status(200).json({status:'completed',accounts_processed:ap,buyers_upserted:bu,products_upserted:pu,evidence_persisted:ev,retailer_discovery:retailerDiscovery,errors});
+    res.status(200).json({status:'completed',accounts_processed:ap,buyers_upserted:bu,products_upserted:pu,evidence_persisted:ev,retailer_discovery:retailerDiscovery,buyer_relationship_revalidation:buyerRelationshipRevalidation,errors});
   }catch(e){
     errors.push({fatal:e.message});
     await sql`update refresh_runs set status='failed',errors=${sql.json(errors)},finished_at=now() where id=${run.id}`;

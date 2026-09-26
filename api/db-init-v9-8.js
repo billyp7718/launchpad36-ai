@@ -187,9 +187,30 @@ alter table buyers add column if not exists category_evidence_url text not null 
 alter table buyers add column if not exists category_evidence_source text not null default '';
 alter table buyers add column if not exists category_last_verified timestamptz;
 alter table buyers add column if not exists category_verification_status text not null default 'UNCONFIRMED';
+alter table buyers add column if not exists employment_verification_status text not null default 'UNCONFIRMED';
+alter table buyers add column if not exists employment_evidence_url text not null default '';
+alter table buyers add column if not exists employment_last_verified timestamptz;
+alter table buyers add column if not exists relationship_review_reason text not null default '';
+alter table buyers add column if not exists replacement_search_required boolean not null default false;
 update buyers set category_scope=category where category_scope='' and coalesce(category,'')<>'';
 update buyers set category_evidence_source='legacy category field',category_verification_status='UNCONFIRMED',category_confidence=0 where category_scope<>'' and category_evidence_url='' and category_verification_status='UNCONFIRMED';
 create index if not exists buyers_category_verification_idx on buyers(category_verification_status,category_confidence desc);
+create index if not exists buyers_relationship_revalidation_idx on buyers(replacement_search_required,category_verification_status,category_last_verified);
+
+create table if not exists buyer_category_relationships (
+ id bigserial primary key,
+ buyer_id uuid not null references buyers(id) on delete cascade,
+ account_id uuid not null references accounts(id) on delete cascade,
+ department text not null default '', category_scope text not null default '', subcategory_scope text not null default '',
+ buyer_role text not null default 'UNCONFIRMED', employment_verification_status text not null default 'UNCONFIRMED',
+ category_verification_status text not null default 'UNCONFIRMED', identity_confidence integer not null default 0,
+ category_confidence integer not null default 0, identity_evidence_url text not null default '', category_evidence_url text not null default '',
+ observed_at timestamptz not null default now(), last_verified_at timestamptz, change_type text not null default 'OBSERVED',
+ previous_relationship_id bigint references buyer_category_relationships(id) on delete set null,
+ payload jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+);
+create index if not exists buyer_category_relationships_buyer_time_idx on buyer_category_relationships(buyer_id,observed_at desc);
+create index if not exists buyer_category_relationships_account_category_idx on buyer_category_relationships(account_id,category_scope,observed_at desc);
 alter table competitive_products add column if not exists observed_at timestamptz;
 alter table competitive_products add column if not exists last_verified_at timestamptz;
 alter table competitive_products add column if not exists evidence_type text default 'assortment_product';
@@ -223,6 +244,9 @@ create or replace function prevent_l36_immutable_mutation() returns trigger lang
 begin raise exception '% is immutable; append a new record instead',tg_table_name; end $$;
 drop trigger if exists commercial_evidence_immutable on commercial_evidence;
 create trigger commercial_evidence_immutable before update or delete on commercial_evidence for each row execute function prevent_l36_immutable_mutation();
+drop trigger if exists intelligence_change_events_immutable on intelligence_change_events;
 create trigger intelligence_change_events_immutable before update or delete on intelligence_change_events for each row execute function prevent_l36_immutable_mutation();
+drop trigger if exists buyer_category_relationships_immutable on buyer_category_relationships;
+create trigger buyer_category_relationships_immutable before update or delete on buyer_category_relationships for each row execute function prevent_l36_immutable_mutation();
 `;
 export default async function handler(req,res){if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});if(!requireAdmin(req,res))return;try{const sql=db();await sql.unsafe(SQL);return res.status(200).json({initialized:true,version:'9.8.3',architecture:'multi_tenant_living_retail_intelligence'})}catch(e){return res.status(500).json({error:e.message})}}
