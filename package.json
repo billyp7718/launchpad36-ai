@@ -8,6 +8,7 @@
     "check": "for f in api/*.js; do node --check \"$f\" || exit 1; done"
   },
   "dependencies": {
+    "pdfkit": "^0.17.2",
     "postgres": "^3.4.7"
   }
 }

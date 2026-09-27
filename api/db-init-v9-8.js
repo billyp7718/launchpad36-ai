@@ -230,6 +230,21 @@ create table if not exists market_opportunity_scenarios (
 );
 create index if not exists market_opportunity_scenarios_tenant_idx on market_opportunity_scenarios(manufacturer_id,updated_at desc);
 
+create table if not exists market_analysis_report_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+  title text not null,
+  brand_name text not null,
+  analysis_date timestamptz not null,
+  filename text not null,
+  content_hash text not null,
+  report_snapshot jsonb not null,
+  email_html text not null,
+  created_at timestamptz not null default now(),
+  unique(manufacturer_id,content_hash)
+);
+create index if not exists market_analysis_report_snapshots_tenant_idx on market_analysis_report_snapshots(manufacturer_id,created_at desc);
+
 create table if not exists opportunity_workspaces (
  id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
  organization_id uuid not null references retail_organizations(id) on delete cascade, account_id uuid references accounts(id) on delete set null,
