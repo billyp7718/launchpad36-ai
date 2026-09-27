@@ -2,11 +2,13 @@ import { db } from './_db.js';
 import { resolveTenant } from './_tenant.js';
 import { reportFilename,reportSnapshotHash,validateReportSnapshot } from './_market-report.js';
 
-const clean=(value,max=500000)=>String(value||'').trim().slice(0,max);
+const MAX_EMAIL_HTML_BYTES=2*1024*1024;
+const clean=value=>String(value||'').trim();
 
 export async function createReportSnapshot(sql,tenantId,{snapshot,email_html}={}){
   const report=validateReportSnapshot(snapshot),emailHtml=clean(email_html);
-  if(emailHtml.length<100||emailHtml.length>=500000)throw new Error('Generate a valid market analysis before exporting');
+  if(emailHtml.length<100)throw new Error('The PDF snapshot email body is missing or incomplete');
+  if(Buffer.byteLength(emailHtml,'utf8')>MAX_EMAIL_HTML_BYTES)throw new Error('The PDF snapshot email body exceeds the 2 MB safety limit');
   const contentHash=reportSnapshotHash(report,emailHtml),filename=reportFilename(report.brand,report.generated_at);
   const existing=(await sql`select id,title,brand_name,analysis_date,filename,content_hash,created_at from market_analysis_report_snapshots where manufacturer_id=${tenantId} and content_hash=${contentHash} order by created_at desc limit 1`)[0];
   if(existing)return existing;

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { createServer } from 'node:http';
 import { access, readFile } from 'node:fs/promises';
 import { createContext, runInContext } from 'node:vm';
 import { normalizeFirecrawlSearch, filterCatalogCandidates, extractCatalogPages } from '../api/catalog-website.js';
@@ -18,6 +19,7 @@ import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
 import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,reportSnapshotHash,validateReportSnapshot } from '../api/_market-report.js';
+import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-snapshots.js';
 import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
 
 test('market report email normalizes and limits recipient addresses',()=>{
@@ -62,6 +64,26 @@ test('Full Market Analysis snapshot tolerates an unassigned buyer without hiding
   assert.deepEqual(Array.from(context.marketReportBuyers(undefined,[buyer,buyer])),[buyer]);
   assert.throws(()=>context.marketReportBuyers(undefined,[{}]),/without an id or name/);
   assert.throws(()=>context.marketReportBuyers(undefined,{}),/must be an array/);
+});
+
+test('production-scale Market Opportunity resolves five selected products and exports 215 accounts over HTTP',async t=>{
+  const products=Array.from({length:5},(_,index)=>({id:`ergo-${index+1}`,brand_name:'ErgoAV',name:`ErgoAV Product ${index+1}`,product_family:'Mounting Solutions',category:'Consumer Electronics',variants:[{sku:`ERGO-${index+1}`,msrp:199.99+index,wholesale:119.99+index}]}));
+  const accountOpportunities=Array.from({length:215},(_,index)=>({organization_id:`org-${index+1}`,name:`Account ${index+1}`,domain:`account${index+1}.example`,base_manufacturer_revenue:index===0?32116101:0,fit_score:90-(index%20),fit_reason:'Category and channel fit',evidence_status:'INSUFFICIENT',verification_status:'UNCONFIRMED',product_contributions:products.map(product=>({product_id:product.id,brand_name:product.brand_name,product_name:product.name,sku:product.variants[0].sku,base_manufacturer_revenue:1000,monthly_sales_volume:0})),buyers:index%3?[{id:`buyer-${index}`,name:`Buyer ${index}`,title:'Merchant'}]:[]}));
+  const marketOpportunity={summary:{selected_product_count:5,target_account_count:215,base_manufacturer_revenue:32116101,verified_account_count:0},assumptions:{route_to_market:'retail'},account_opportunities:accountOpportunities,warnings:[]};
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8'),start=ui.indexOf('function marketReportSelectedProducts'),end=ui.indexOf('function marketReportSnapshotPayload',start),context=createContext({state:{marketOpportunity,portfolio:{products}},Error,String,Number,Array,Set});
+  runInContext(`${ui.slice(start,end)}globalThis.resolveProducts=()=>marketReportSelectedProducts(state.marketOpportunity)`,context);
+  const resolved=Array.from(context.resolveProducts());assert.equal(resolved.length,5);assert.deepEqual(resolved.map(product=>product.name),products.map(product=>product.name));
+  const snapshot={...reportFixture(215),brand:'ErgoAV',summary:marketOpportunity.summary,selected_products:products.map(product=>({...product,skus:product.variants})),accounts:accountOpportunities.map((account,index)=>({name:account.name,domain:account.domain,annual_opportunity:index===0?32116101:0,fit_score:account.fit_score,fit_reason:account.fit_reason,evidence_status:'INSUFFICIENT',verification_status:'UNCONFIRMED',channel_findings:'Needs confirmation',sku_details:account.product_contributions,buyers:account.buyers}))},email_html=`<!doctype html><html><body>${'Complete account analysis. '.repeat(24000)}</body></html>`;
+  assert.ok(Buffer.byteLength(email_html)>500000);assert.equal(snapshot.selected_products.length,5);assert.equal(snapshot.accounts.length,215);
+  let saved=null;const sql=async(strings,...values)=>{const query=strings.join('?');if(query.includes('select id,title'))return saved?[saved]:[];if(query.includes('insert into market_analysis_report_snapshots')){saved={id:'22222222-2222-2222-2222-222222222222',title:values[1],brand_name:values[2],analysis_date:values[3],filename:values[4],content_hash:values[5],report_snapshot:values[6],email_html:values[7],created_at:new Date().toISOString()};return [saved]}throw new Error(`Unexpected SQL: ${query}`)};sql.json=value=>value;
+  const server=createServer(async(req,res)=>{try{if(req.method==='POST'&&req.url==='/api/market-report-snapshots'){let raw='';for await(const chunk of req)raw+=chunk;const row=await createReportSnapshot(sql,'tenant-1',JSON.parse(raw));res.writeHead(201,{'content-type':'application/json'}).end(JSON.stringify({snapshot:row}));return}if(req.method==='GET'&&req.url?.startsWith('/api/market-report-pdf')){const id=new URL(req.url,'http://localhost').searchParams.get('snapshot_id'),row=await loadReportSnapshot(sql,'tenant-1',id);const pdf=await generateMarketAnalysisPdf(row.report_snapshot);res.writeHead(200,{'content-type':'application/pdf','content-disposition':`attachment; filename="${row.filename}"`}).end(pdf);return}res.writeHead(404).end()}catch(error){res.writeHead(400,{'content-type':'application/json'}).end(JSON.stringify({error:error.message}))}});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>server.close());const base=`http://127.0.0.1:${server.address().port}`;
+  const postBody={snapshot,email_html},post=await fetch(`${base}/api/market-report-snapshots`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(postBody)});assert.equal(post.status,201);const created=await post.json();assert.equal(created.snapshot.id,saved.id);assert.equal(saved.report_snapshot.selected_products.length,5);assert.equal(saved.report_snapshot.accounts.length,215);
+  const pdfResponse=await fetch(`${base}/api/market-report-pdf?snapshot_id=${created.snapshot.id}`);assert.equal(pdfResponse.status,200);assert.equal(pdfResponse.headers.get('content-type'),'application/pdf');const pdf=Buffer.from(await pdfResponse.arrayBuffer());assert.equal(pdf.subarray(0,4).toString(),'%PDF');assert.ok(pdf.length>20000);
+});
+
+test('market report validation identifies the missing snapshot component',()=>{
+  assert.throws(()=>validateReportSnapshot({selected_products:[],accounts:[{}]}),/PDF snapshot contains no selected products/);
+  assert.throws(()=>validateReportSnapshot({selected_products:[{name:'ErgoAV Product'}],accounts:[]}),/PDF snapshot contains no included accounts/);
 });
 
 test('email attachment preparation fails closed when PDF generation or size validation fails',async()=>{
