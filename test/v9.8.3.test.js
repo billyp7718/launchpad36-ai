@@ -17,11 +17,33 @@ import { detectBuyerRelationshipChange, relationshipDisposition } from '../api/_
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
+import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,reportSnapshotHash,validateReportSnapshot } from '../api/_market-report.js';
 import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
 
 test('market report email normalizes and limits recipient addresses',()=>{
   assert.deepEqual(reportRecipients('A@Example.com; b@example.com, a@example.com'),['a@example.com','b@example.com']);
   assert.equal(reportRecipients(Array.from({length:20},(_,i)=>`x${i}@example.com`).join(',')).length,10);
+});
+
+const reportFixture=(accountCount=2)=>({title:'Full Market Analysis - Café & Audio™',brand:'Aurelius Audio',generated_at:'2026-09-27T12:00:00.000Z',executive_summary:'A complete multi-account market analysis.',recommendations:'Validate evidence before outreach.',summary:{base_manufacturer_revenue:250000,low_manufacturer_revenue:162500,high_manufacturer_revenue:337500,evidence_backed_manufacturer_revenue:90000},assumptions:{route_to_market:'retail',annual_units_per_location:12,distribution_probability:25,portfolio_overlap_discount:10,provenance:'USER_PROVIDED'},warnings:['Modeled opportunity is not verified retailer sales.'],selected_products:[{brand_name:'Aurelius Audio',name:'Élan Soundbar',product_family:'Home Theater',category:'Audio',skus:[{sku:'AA-É100'},{sku:'AA-É200'}]},{brand_name:'Aurelius Audio',name:'Verona Speaker',category:'Speakers',skus:[{sku:'AA-V300'}]}],accounts:Array.from({length:accountCount},(_,index)=>({name:`Retailer ${index+1} & Co.`,domain:`retailer${index+1}.example`,annual_opportunity:125000/(index+1),fit_score:90-index,evidence_status:index%2?'UNCONFIRMED':'VERIFIED',confidence:index%2?40:90,last_verified_at:index%2?null:'2026-09-20',route_to_market:'retail',channel_findings:index%2?'Needs confirmation':'In-store and online',sku_details:[{brand_name:'Aurelius Audio',product_name:'Élan Soundbar',sku:'AA-É100',monthly_units_per_store:2,retail_price:499.99,wholesale_price:300,channel:'In store + online',annual_opportunity:7200,evidence_sources:[{url:`https://retailer${index+1}.example/audio`,verification_status:index%2?'UNKNOWN':'VERIFIED'}]},{brand_name:'Aurelius Audio',product_name:'Verona Speaker',sku:'AA-V300',monthly_units_per_store:1,retail_price:999.99,wholesale_price:600,channel:'Online',annual_opportunity:7200}],competitive_assortment:[{brand:'Example',name:'Competing Soundbar',price_text:'$399.99',in_store:true,online:true,verification_status:'VERIFIED',source_url:`https://retailer${index+1}.example/competitor`}],buyers:index%3?[{name:'Jamie Merchant',title:'Category Manager',department:index%2?'Unconfirmed':'Consumer Electronics',category_scope:index%2?'Unconfirmed':'Audio',buyer_role:'CATEGORY_OWNER',identity_confidence:88,category_confidence:index%2?0:84,employment_verification_status:'VERIFIED',category_verification_status:index%2?'UNCONFIRMED':'VERIFIED',source_url:`https://retailer${index+1}.example/leadership`}]:[]}))});
+
+test('Full Market Analysis PDF supports multi-account, multi-SKU, long and optional-buyer reports',async()=>{
+  const snapshot=reportFixture(55),pdf=await generateMarketAnalysisPdf(snapshot);
+  assert.ok(Buffer.isBuffer(pdf));assert.equal(pdf.subarray(0,4).toString(),'%PDF');assert.ok(pdf.length>20000);
+  assert.equal(validateReportSnapshot(snapshot).accounts.length,55);
+  assert.equal(reportFilename('Café & Audio™','2026-09-27T12:00:00Z'),'Launchpad36_Full_Market_Analysis_Cafe_AudioTM_2026-09-27.pdf');
+});
+
+test('PDF download and email are wired to the same saved snapshot and generator',async()=>{
+  const [ui,download,email,snapshots]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/market-report-pdf.js',import.meta.url),'utf8'),readFile(new URL('../api/market-report-email.js',import.meta.url),'utf8'),readFile(new URL('../api/market-report-snapshots.js',import.meta.url),'utf8')]);
+  for(const source of [download,email]){assert.match(source,/loadReportSnapshot/);assert.match(source,/snapshot_id|snapshotId/)}
+  assert.match(download,/generateMarketAnalysisPdf/);assert.match(email,/prepareMarketReportAttachment/);assert.match(ui,/ensureMarketReportSnapshot/);assert.match(ui,/snapshot_id:snapshot\.id/);assert.match(ui,/market-report-pdf\?snapshot_id=/);assert.match(snapshots,/content_hash/);
+  const fixture=reportFixture(),html='<!doctype html><html><body>'+('Original email body '.repeat(10))+'</body></html>',hash=reportSnapshotHash(fixture,html);assert.equal(hash,reportSnapshotHash(fixture,html));assert.notEqual(hash,reportSnapshotHash({...fixture,title:'Changed'},html));
+});
+
+test('email attachment preparation fails closed when PDF generation or size validation fails',async()=>{
+  await assert.rejects(()=>prepareMarketReportAttachment(reportFixture(),async()=>{throw new Error('renderer failed')}),error=>error.code==='PDF_GENERATION_FAILED'&&/no email was sent/i.test(error.message));
+  await assert.rejects(()=>prepareMarketReportAttachment(reportFixture(),async()=>Buffer.alloc(8*1024*1024+1)),error=>error.code==='PDF_ATTACHMENT_TOO_LARGE'&&/no email was sent/i.test(error.message));
 });
 
 test('retail industry update uses PostgreSQL-safe daily cache SQL and keeps authenticated attributable research',async()=>{

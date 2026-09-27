@@ -12,6 +12,7 @@ const REQUIRED_TABLES = [
   'monitor_targets',
   'opportunity_workspaces',
   'market_opportunity_scenarios',
+  'market_analysis_report_snapshots',
   'refresh_runs'
 ];
 
