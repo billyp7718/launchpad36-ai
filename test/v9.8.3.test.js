@@ -55,6 +55,15 @@ test('Full Market Analysis UI downloads through a snapshot and opens a manual-at
   assert.match(ui,/Open Email App/);assert.match(ui,/The complete Full Market Analysis PDF was downloaded separately\./);assert.doesNotMatch(ui,/Download and attach the full HTML or CSV report/);
 });
 
+test('Full Market Analysis snapshot tolerates an unassigned buyer without hiding malformed buyer data',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8'),start=ui.indexOf('function marketReportBuyers'),end=ui.indexOf('function marketReportSnapshotPayload',start),context=createContext({Error,String});
+  runInContext(`${ui.slice(start,end)}globalThis.marketReportBuyers=marketReportBuyers`,context);
+  const buyer={id:'buyer-1',name:'Jamie Merchant'};
+  assert.deepEqual(Array.from(context.marketReportBuyers(undefined,[buyer,buyer])),[buyer]);
+  assert.throws(()=>context.marketReportBuyers(undefined,[{}]),/without an id or name/);
+  assert.throws(()=>context.marketReportBuyers(undefined,{}),/must be an array/);
+});
+
 test('email attachment preparation fails closed when PDF generation or size validation fails',async()=>{
   await assert.rejects(()=>prepareMarketReportAttachment(reportFixture(),async()=>{throw new Error('renderer failed')}),error=>error.code==='PDF_GENERATION_FAILED'&&/no email was sent/i.test(error.message));
   await assert.rejects(()=>prepareMarketReportAttachment(reportFixture(),async()=>Buffer.alloc(8*1024*1024+1)),error=>error.code==='PDF_ATTACHMENT_TOO_LARGE'&&/no email was sent/i.test(error.message));
