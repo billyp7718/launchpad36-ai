@@ -20,10 +20,11 @@ export function reportSnapshotHash(snapshot,emailHtml=''){
 }
 
 export function validateReportSnapshot(input={}){
-  if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('A complete analysis snapshot is required');
+  if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('The PDF snapshot is missing the market analysis');
   const products=Array.isArray(input.selected_products)?input.selected_products:[];
   const accounts=Array.isArray(input.accounts)?input.accounts:[];
-  if(!products.length)throw new Error('The analysis snapshot must include at least one selected product');
+  if(!products.length)throw new Error('The PDF snapshot contains no selected products');
+  if(!accounts.length)throw new Error('The PDF snapshot contains no included accounts');
   if(accounts.length>2500)throw new Error('The analysis contains too many accounts to export');
   return {...input,title:text(input.title,'Full Market Analysis').slice(0,180),generated_at:input.generated_at||new Date().toISOString(),brand:text(input.brand||products.map(p=>p.brand_name).filter(Boolean).join(' + '),'Portfolio').slice(0,180),selected_products:products.slice(0,250),accounts};
 }
