@@ -22,6 +22,7 @@ import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,
 import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-snapshots.js';
 import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
 import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
+import { canSeeAllTenantData } from '../api/_tenant.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -45,6 +46,30 @@ test('manager administration cannot escape team scope or escalate roles',()=>{
   assert.equal(managerMayGrant(ROLES.MANAGER),false);
   assert.equal(managerMayGrant(ROLES.MEMBER),true);
   assert.equal(managerMayGrant(ROLES.VIEWER),true);
+});
+
+test('role controls persist canonical roles instead of visually reverting to viewer',async()=>{
+  const ui=await readFile(new URL('../multi-user-ui.js',import.meta.url),'utf8');
+  assert.match(ui,/current=String\(member\.role\|\|'member'\)\.toLowerCase\(\)/);
+  assert.match(ui,/current===r\?'selected'/);
+  assert.match(ui,/action:'set_role'/);
+  assert.match(ui,/d\.permissions\?\.role/);
+});
+
+test('tenant-private portfolio and account analyses are team scoped while public intelligence stays shared',async()=>{
+  const [identity,migration,brands,portfolio,products,overlays,opportunities,market,scenarios,catalogImport,phase2,universe,buyers]=await Promise.all([
+    readFile(new URL('../api/_identity.js',import.meta.url),'utf8'),readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),readFile(new URL('../api/brands.js',import.meta.url),'utf8'),readFile(new URL('../api/portfolio.js',import.meta.url),'utf8'),readFile(new URL('../api/products.js',import.meta.url),'utf8'),readFile(new URL('../api/account-overlays.js',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8'),readFile(new URL('../api/market-scenarios.js',import.meta.url),'utf8'),readFile(new URL('../api/catalog-import.js',import.meta.url),'utf8'),readFile(new URL('../phase2-tenancy-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/account-universe.js',import.meta.url),'utf8'),readFile(new URL('../api/buyers.js',import.meta.url),'utf8')
+  ]);
+  assert.equal(canSeeAllTenantData({role:'ADMIN'}),true);assert.equal(canSeeAllTenantData({role:'MANAGER'}),false);
+  for(const source of [identity,migration])for(const marker of ['brands add column if not exists owner_user_id','brands add column if not exists team_id','brands add column if not exists visibility','brands_scope_idx'])assert.match(source,new RegExp(marker));
+  for(const source of [brands,portfolio,products,overlays]){assert.match(source,/owner_user_id/);assert.match(source,/visibility='team'/);assert.match(source,/team_id=any/)}
+  assert.match(phase2,/Brand sharing/);assert.match(phase2,/Brands are private by default/);assert.match(phase2,/current=mine\.visibility\|\|'private'/);
+  for(const source of [identity,migration])for(const marker of ['opportunity_workspaces add column if not exists owner_user_id','opportunity_workspaces add column if not exists team_id','opportunity_workspaces add column if not exists visibility','market_opportunity_scenarios add column if not exists owner_user_id'])assert.match(source,new RegExp(marker));
+  assert.match(opportunities,/canAccess\(existing,tenant\)/);assert.match(opportunities,/owner_user_id,visibility/);assert.match(market,/scope=\$\{scopeKey\}/);assert.match(market,/owner_user_id,visibility/);assert.match(scenarios,/canAccess\(row,tenant\)/);
+  assert.match(catalogImport,/outside your private or team scope/);assert.match(catalogImport,/owner_user_id,visibility/);
+  assert.match(universe,/retail_organizations/);assert.doesNotMatch(universe,/owner_user_id/);
+  assert.match(buyers,/select b\.\*/);assert.doesNotMatch(buyers,/visibility='team'/);
+  assert.doesNotMatch(migration,/drop\s+(column|table)|truncate|delete\s+from\s+(brands|products|manufacturer_members|tenant_account_overlays)/i);
 });
 
 test('restricted direct API capability checks fail with 403',()=>{
@@ -748,7 +773,7 @@ test('products can be added and fully edited without a catalog import',async()=>
   assert.match(ui,/method:id\?'PATCH':'POST'/);assert.match(ui,/productEditorModal/);assert.match(ui,/@media\(max-width:760px\)[\s\S]*?\.variantRow\{grid-template-columns:1fr 1fr\}/);
   assert.match(productApi,/req\.method==='PATCH'/);assert.match(productApi,/where id=\$\{id\} and manufacturer_id=\$\{tenant\.tenant_id\} and active=true/);
   for(const marker of ['product_family','description','positioning','differentiator','product_url','image_url','product_categories','product_channels','product_variants'])assert.match(productApi,new RegExp(marker));
-  assert.match(productApi,/brand_id.*manufacturer_id=\$\{tenantId\}/);assert.match(productApi,/sql\.begin/);
+  assert.match(productApi,/accessibleBrand\(sql,product\.brand_id,tenant\)/);assert.match(productApi,/sql\.begin/);
 });
 
 test('account information can be edited without replacing its organization id',async()=>{
