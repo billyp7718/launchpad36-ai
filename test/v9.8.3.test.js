@@ -67,6 +67,15 @@ test('workspace administration opens the existing application modal',async()=>{
   assert.doesNotMatch(ui,/document\.body\.appendChild\(host\)/);
 });
 
+test('Retail Revenue hero renders opaque and refreshes after deferred UI enhancement',async()=>{
+  const ui=await readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8');
+  assert.match(ui,/hero l36-revenue-hero/);
+  assert.match(ui,/\.l36-revenue-hero\{opacity:1;filter:none;background-color:#071d3e/);
+  assert.match(ui,/isolation:isolate;contain:paint/);
+  assert.match(ui,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);
+  assert.match(ui,/state\.screen==='Dashboard'.*render\(\)/);
+});
+
 test('designated permanent administrator cannot be downgraded',async()=>{
   const [identity,migration,teamAdmin,ui]=await Promise.all([
     readFile(new URL('../api/_identity.js',import.meta.url),'utf8'),
