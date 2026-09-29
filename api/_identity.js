@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { db } from './_db.js';
 
 let schemaReady;
-export function normalizeRole(value='member'){const role=String(value||'member').toLowerCase();return ['owner','admin','manager','member','viewer'].includes(role)?role:'member'}
+export function normalizeRole(value='member'){const role=String(value||'member').toLowerCase();return role==='owner'?'admin':['admin','manager','member','viewer'].includes(role)?role:'member'}
 export function hashPassword(password=''){const value=String(password);if(value.length<8)throw Object.assign(new Error('Password must be at least 8 characters'),{status:400});const salt=crypto.randomBytes(16).toString('hex');const hash=crypto.scryptSync(value,salt,64).toString('hex');return `scrypt$${salt}$${hash}`}
 export function verifyPassword(password='',encoded=''){try{const [type,salt,expected]=String(encoded).split('$');if(type!=='scrypt'||!salt||!expected)return false;const actual=crypto.scryptSync(String(password),salt,64);const target=Buffer.from(expected,'hex');return actual.length===target.length&&crypto.timingSafeEqual(actual,target)}catch{return false}}
 
@@ -20,6 +20,8 @@ export async function ensureIdentitySchema(sql=db()){
   await sql`alter table manufacturer_members add column if not exists invited_at timestamptz default now()`;
   await sql`alter table manufacturer_members add column if not exists created_by uuid references manufacturer_members(id) on delete set null`;
   await sql`alter table manufacturer_members add column if not exists default_team_id uuid references manufacturer_teams(id) on delete set null`;
+  await sql`update manufacturer_members set role='admin' where lower(role)='owner'`;
+  await sql`update manufacturer_members set role='member' where lower(role) not in('admin','manager','member','viewer')`;
   await sql`create table if not exists manufacturer_team_members(team_id uuid not null references manufacturer_teams(id) on delete cascade,member_id uuid not null references manufacturer_members(id) on delete cascade,role text not null default 'member',created_at timestamptz not null default now(),primary key(team_id,member_id))`;
   await sql`alter table products add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null`;
   await sql`alter table products add column if not exists team_id uuid references manufacturer_teams(id) on delete set null`;

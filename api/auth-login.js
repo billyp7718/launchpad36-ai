@@ -1,6 +1,7 @@
 import { db } from './_db.js';
 import { createSessionCookie } from './_auth.js';
 import { ensureIdentitySchema, verifyPassword } from './_identity.js';
+import { canonicalRole, permissionSummary } from './_permissions.js';
 
 const clean=(v,m=240)=>String(v||'').trim().slice(0,m);
 export default async function handler(req,res){
@@ -24,6 +25,6 @@ export default async function handler(req,res){
   const member=matches[0];
   await sql`update manufacturer_members set last_login_at=now(),updated_at=now() where id=${member.id}`;
   res.setHeader('set-cookie',createSessionCookie({role:member.role,tenant_id:member.manufacturer_id,user_id:member.id,display_name:member.display_name,email:member.email}));
-  return res.status(200).json({authenticated:true,user:{id:member.id,email:member.email,display_name:member.display_name,role:member.role,manufacturer_id:member.manufacturer_id,manufacturer_name:member.manufacturer_name}});
+  const role=canonicalRole(member.role);return res.status(200).json({authenticated:true,user:{id:member.id,email:member.email,display_name:member.display_name,role,manufacturer_id:member.manufacturer_id,manufacturer_name:member.manufacturer_name},permissions:permissionSummary({role})});
  }catch(e){console.error('user login failed',{message:e?.message||String(e)});return res.status(500).json({error:'Login could not be completed'})}
 }

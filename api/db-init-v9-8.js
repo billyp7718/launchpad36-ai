@@ -8,6 +8,8 @@ create table if not exists manufacturer_members (
  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create unique index if not exists manufacturer_members_email_lower_uq on manufacturer_members(manufacturer_id,lower(email));
+update manufacturer_members set role='admin' where lower(role)='owner';
+update manufacturer_members set role='member' where lower(role) not in('admin','manager','member','viewer');
 
 alter table brands add column if not exists logo_url text default '';
 alter table brands add column if not exists description text default '';

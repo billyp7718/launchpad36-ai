@@ -1,5 +1,6 @@
 import { db, upsertBuyer } from './_db.js';
-import { requireAdmin } from './_auth.js';
+import { resolveTenant } from './_tenant.js';
+import { CAPABILITIES, requireCapability } from './_permissions.js';
 import { searchOpenAIBuyers } from './_openai-research.js';
 import { appendBuyerRelationship, relationshipDisposition } from './_buyer-relationships.js';
 
@@ -25,7 +26,7 @@ async function publicPhoneLookup({name,title,account,dom}){
  const c=new AbortController(),t=setTimeout(()=>c.abort(),65000);try{const r=await fetch(OPENAI_RESPONSES,{method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},signal:c.signal,body:JSON.stringify({model,reasoning:{effort:'low'},tools:[{type:'web_search',search_context_size:'medium',user_location:{type:'approximate',country:'US'}}],tool_choice:'auto',include:['web_search_call.action.sources'],input:prompt,max_output_tokens:1400,text:{format:{type:'json_schema',name:'buyer_public_phone_lookup',strict:true,schema}}})});let b={};try{b=await r.json()}catch{};if(!r.ok)return {status:'ERROR',error:clean(b.error?.message||`OpenAI ${r.status}`,240)};let p={};try{p=JSON.parse(outputText(b)||'{}')}catch{return {status:'ERROR',error:'Invalid structured phone-search response'}};const sources=webSources(b),source=clean(p.source_url,500).replace(/\/$/,'');const sourceOK=sources.some(s=>s.url.replace(/\/$/,'')===source),num=phone(p.phone);if(!num||p.phone_type==='NONE'||!sourceOK)return {status:'NO_RESULTS',sources};return {status:'SUCCESS',phone:num,phone_type:p.phone_type,source_url:source,source_title:clean(p.source_title,220),evidence_quote:clean(p.evidence_quote,240),confidence:Math.min(96,Math.max(70,Number(p.confidence)||80)),sources}}catch(e){return {status:'ERROR',error:e.name==='AbortError'?'Phone lookup timed out':clean(e.message,240)}}finally{clearTimeout(t)}}
 
 export default async function handler(req,res){
- if(!requireAdmin(req,res))return;if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
+ const tenant=await resolveTenant(req,res);if(!tenant||!requireCapability(tenant,res,CAPABILITIES.DEEP_SEARCH))return;if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
  const buyerId=clean(req.body?.buyer_id,100);if(!buyerId)return res.status(400).json({error:'buyer_id is required'});const sql=db();
  try{
   const row=(await sql`select b.*,a.organization_id,a.domain account_domain,a.name account_name,ro.domain organization_domain,ro.source_url organization_source_url,ro.name organization_name from buyers b join accounts a on a.id=b.account_id left join retail_organizations ro on ro.id=a.organization_id where b.id=${buyerId} limit 1`)[0];if(!row)return res.status(404).json({error:'Buyer was not found'});

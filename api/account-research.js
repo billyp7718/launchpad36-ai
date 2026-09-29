@@ -1,6 +1,6 @@
 import { db, upsertBuyer, upsertCompetitiveProduct } from './_db.js';
-import { requireInternal } from './_auth.js';
 import { resolveTenant } from './_tenant.js';
+import { CAPABILITIES, requireCapability } from './_permissions.js';
 import { safeDomain } from './_acquisition.js';
 import { domainFromWebsite, normalizePublicUrl } from './_url.js';
 import { runLivingIntelligencePipeline } from './_living-intelligence.js';
@@ -14,7 +14,7 @@ const roleScore=title=>/chief merchant|chief merchandising/i.test(title)?95:/\b(
 const channelStatus=item=>{if(item.purchase_channel&&item.purchase_channel!=='UNKNOWN')return item.purchase_channel;const text=`${item.availability||''} ${item.evidence_quote||''}`.toLowerCase(),store=/pickup|pick up|in store|store availability|ready today/.test(text),online=/ship|delivery|add to cart|online/.test(text);return store&&online?'OMNICHANNEL_SIGNAL':store?'IN_STORE_SIGNAL':online?'ONLINE':'ONLINE_LISTING_IN_STORE_UNKNOWN'};
 
 export default async function handler(req,res){
-  if(!requireInternal(req,res))return;const tenant=await resolveTenant(req,res);if(!tenant)return;
+  const tenant=await resolveTenant(req,res);if(!tenant)return;const capability=req.body?.analysis_mode==='deep_market'?CAPABILITIES.DEEP_MARKET_ANALYSIS:CAPABILITIES.DEEP_SEARCH;if(!requireCapability(tenant,res,capability))return;
   if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
   const organizationId=String(req.body?.organization_id||'').trim();if(!organizationId)return res.status(400).json({error:'organization_id is required'});
   const sql=db();

@@ -1,9 +1,11 @@
 import { db, upsertBuyer } from './_db.js';
-import { requireAdmin } from './_auth.js';
+import { resolveTenant } from './_tenant.js';
+import { CAPABILITIES, requireCapability } from './_permissions.js';
 const clean=(value,max=300)=>String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 export default async function handler(req,res){
  try{
-  if(!requireAdmin(req,res)) return;
+  const tenant=await resolveTenant(req,res);if(!tenant)return;
+  if(!requireCapability(tenant,res,req.method==='GET'?CAPABILITIES.APP_READ:CAPABILITIES.APP_WRITE))return;
   res.setHeader('Cache-Control','no-store, max-age=0');
   if(req.method==='GET'){
     const sql=db(),account=req.query.account_id||null,organization=req.query.organization_id||null;
