@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { canonicalRole, ROLES } from './_permissions.js';
 
 const COOKIE='l36_session';
 const TTL=60*60*8;
@@ -11,7 +12,7 @@ export function createSessionCookie(data={}){const secret=process.env.ADMIN_SECR
 export function clearSessionCookie(){return `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`}
 export function sessionData(req){const secret=process.env.ADMIN_SECRET||'';if(!secret)return null;const token=parseCookies(req)[COOKIE]||'';const [payload,sig]=token.split('.');if(!payload||!sig||!safeEqual(sig,sign(payload,secret)))return null;try{const data=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));if(Number(data.exp)<=Math.floor(Date.now()/1000))return null;return data}catch{return null}}
 export function isAuthenticated(req){return Boolean(sessionData(req)?.tenant_id)}
-export function isAdmin(req){return ['owner','admin'].includes(String(sessionData(req)?.role||'').toLowerCase())}
+export function isAdmin(req){return canonicalRole(sessionData(req)?.role)===ROLES.ADMIN}
 export function isAdminBearer(req){const secret=process.env.ADMIN_SECRET||'';return Boolean(secret)&&safeEqual(bearer(req),secret)}
 export function isCron(req){const secret=process.env.CRON_SECRET||'';return Boolean(secret)&&safeEqual(bearer(req),secret)}
 export function requireUser(req,res){if(isAuthenticated(req)||isAdminBearer(req))return true;res.status(401).json({error:'Authentication required'});return false}

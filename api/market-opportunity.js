@@ -1,6 +1,7 @@
 import { db } from './_db.js';
 import { resolveTenant } from './_tenant.js';
 import { buyerProfiles, categoryConcepts, evaluateProductAccountFit, evidenceProfiles } from './_account-fit.js';
+import { CAPABILITIES, requireCapability } from './_permissions.js';
 
 const ROUTES=new Set(['retail','direct_b2b','distributor_dealer','mixed']);
 const RETAIL_CHANNELS=new Set(['mass','ce','ecommerce','specialty_av','office','furniture','club','warehouse','home_improvement','automotive','department','grocery','supermarket','drug','pharmacy','value','dollar']);
@@ -92,6 +93,7 @@ async function persistWorkspaces(sql,{manufacturerId,productIds,route,result}){
 
 export default async function handler(req,res){
   const tenant=await resolveTenant(req,res);if(!tenant)return;
+  if(req.body?.analysis_mode==='deep_market'&&!requireCapability(tenant,res,CAPABILITIES.DEEP_MARKET_ANALYSIS))return;
   if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
   const productIds=[...new Set((req.body?.product_ids||[]).map(String).filter(Boolean))];
   if(!productIds.length||productIds.length>100)return res.status(400).json({error:'Select between 1 and 100 products'});

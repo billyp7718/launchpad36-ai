@@ -21,6 +21,55 @@ import { reportRecipients } from '../api/market-report-email.js';
 import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,reportSnapshotHash,validateReportSnapshot } from '../api/_market-report.js';
 import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-snapshots.js';
 import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
+import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
+
+test('central authorization matrix grants only the intended role capabilities',()=>{
+  const expected={
+    ADMIN:['APP_READ','APP_WRITE','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TENANT','USER_ADMIN_TEAM','TENANT_SECURITY','SEE_ALL_BUSINESS_DATA'],
+    MANAGER:['APP_READ','APP_WRITE','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TEAM','SEE_ALL_BUSINESS_DATA'],
+    MEMBER:['APP_READ','APP_WRITE','DEEP_SEARCH'],
+    VIEWER:['APP_READ']
+  };
+  for(const role of Object.values(ROLES))assert.deepEqual(new Set(roleCapabilities(role)),new Set(expected[role]),role);
+  assert.equal(canonicalRole('owner'),ROLES.ADMIN);
+  assert.equal(hasCapability(ROLES.MEMBER,CAPABILITIES.DEEP_MARKET_ANALYSIS),false);
+  assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.DEEP_SEARCH),false);
+  assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.DEEP_MARKET_ANALYSIS),false);
+  assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.APP_WRITE),false);
+});
+
+test('manager administration cannot escape team scope or escalate roles',()=>{
+  assert.equal(teamScopeIncludes(['team-a'],['team-a']),true);
+  assert.equal(teamScopeIncludes(['team-a'],['team-b']),false);
+  assert.equal(managerMayGrant(ROLES.ADMIN),false);
+  assert.equal(managerMayGrant(ROLES.MANAGER),false);
+  assert.equal(managerMayGrant(ROLES.MEMBER),true);
+  assert.equal(managerMayGrant(ROLES.VIEWER),true);
+});
+
+test('restricted direct API capability checks fail with 403',()=>{
+  const denied=[];const response={status(code){denied.push(code);return this},json(payload){denied.push(payload);return this}};
+  assert.equal(requireCapability({role:ROLES.MEMBER},response,CAPABILITIES.DEEP_MARKET_ANALYSIS),false);
+  assert.equal(requireCapability({role:ROLES.VIEWER},response,CAPABILITIES.DEEP_SEARCH),false);
+  assert.equal(requireCapability({role:ROLES.VIEWER},response,CAPABILITIES.DEEP_MARKET_ANALYSIS),false);
+  assert.deepEqual(denied.filter(value=>value===403),[403,403,403]);
+  assert.ok(denied.filter(value=>value?.code==='FORBIDDEN').every(value=>value.required_capability));
+});
+
+test('deep-search and deep-market entry points enforce capabilities server-side',async()=>{
+  const deepSearchFiles=['account-research.js','buyer-deep-search.js','buyer-intelligence.js','buyer-research-resilient.js','decision-makers.js'];
+  for(const file of deepSearchFiles){const source=await readFile(new URL(`../api/${file}`,import.meta.url),'utf8');assert.match(source,/CAPABILITIES\.DEEP_SEARCH/,file)}
+  const [market,research,ui]=await Promise.all([readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8'),readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  assert.match(market,/analysis_mode.*deep_market/);assert.match(market,/CAPABILITIES\.DEEP_MARKET_ANALYSIS/);
+  assert.match(research,/analysis_mode.*deep_market/);assert.match(research,/CAPABILITIES\.DEEP_MARKET_ANALYSIS/);
+  assert.match(ui,/analysis_mode:'deep_market'/);assert.match(ui,/data-capability="DEEP_MARKET_ANALYSIS"/);assert.match(ui,/data-capability="DEEP_SEARCH"/);assert.match(ui,/VIEWER_MUTATION/);assert.match(ui,/Viewer access is read-only/);
+});
+
+test('role migration is additive, idempotent, and does not reset users or sessions',async()=>{
+  const migration=await readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8');
+  assert.match(migration,/set role='admin' where lower\(role\)='owner'/);
+  assert.doesNotMatch(migration,/drop\s+(table|column)|truncate|delete\s+from\s+manufacturer_members|update\s+manufacturer_members\s+set\s+password_hash/i);
+});
 
 test('market report email normalizes and limits recipient addresses',()=>{
   assert.deepEqual(reportRecipients('A@Example.com; b@example.com, a@example.com'),['a@example.com','b@example.com']);
@@ -389,9 +438,9 @@ test('buyer UI separates department, category, identity and category verificatio
 
 test('buyer category research preserves authentication, tenant resolution and LinkedIn policy',async()=>{
   const [accountResearch,buyerIntelligence,deepSearch]=await Promise.all([readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../api/buyer-intelligence.js',import.meta.url),'utf8'),readFile(new URL('../api/buyer-deep-search.js',import.meta.url),'utf8')]);
-  for(const source of [accountResearch,buyerIntelligence]){assert.match(source,/requireInternal\(req,res\)/);assert.match(source,/resolveTenant\(req,res/)}
+  for(const source of [accountResearch,buyerIntelligence]){assert.match(source,/CAPABILITIES\.DEEP_SEARCH/);assert.match(source,/resolveTenant\(req,res/)}
   assert.match(buyerIntelligence,/verification_enrichment_only/);assert.match(buyerIntelligence,/private_contact_inference:false/);
-  assert.match(deepSearch,/requireAdmin\(req,res\)/);assert.match(deepSearch,/reveal_personal_emails','false'/);assert.match(deepSearch,/reveal_phone_number','false'/);
+  assert.match(deepSearch,/CAPABILITIES\.DEEP_SEARCH/);assert.match(deepSearch,/reveal_personal_emails','false'/);assert.match(deepSearch,/reveal_phone_number','false'/);
 });
 
 test('OpenAI buyer research fails closed when citations or structured JSON are missing',()=>{
