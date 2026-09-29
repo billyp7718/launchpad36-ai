@@ -56,6 +56,16 @@ test('role controls persist canonical roles instead of visually reverting to vie
   assert.match(ui,/d\.permissions\?\.role/);
 });
 
+test('workspace administration opens the existing application modal',async()=>{
+  const ui=await readFile(new URL('../multi-user-ui.js',import.meta.url),'utf8');
+  assert.match(ui,/getElementById\('modalCard'\)/);
+  assert.match(ui,/getElementById\('modal'\)/);
+  assert.match(ui,/dialog\.classList\.add\('show'\)/);
+  assert.match(ui,/showWorkspaceModal\(body\)/);
+  assert.doesNotMatch(ui,/typeof modal==='function'/);
+  assert.doesNotMatch(ui,/document\.body\.appendChild\(host\)/);
+});
+
 test('tenant-private portfolio and account analyses are team scoped while public intelligence stays shared',async()=>{
   const [identity,migration,brands,portfolio,products,overlays,opportunities,market,scenarios,catalogImport,phase2,universe,buyers]=await Promise.all([
     readFile(new URL('../api/_identity.js',import.meta.url),'utf8'),readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),readFile(new URL('../api/brands.js',import.meta.url),'utf8'),readFile(new URL('../api/portfolio.js',import.meta.url),'utf8'),readFile(new URL('../api/products.js',import.meta.url),'utf8'),readFile(new URL('../api/account-overlays.js',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8'),readFile(new URL('../api/market-scenarios.js',import.meta.url),'utf8'),readFile(new URL('../api/catalog-import.js',import.meta.url),'utf8'),readFile(new URL('../phase2-tenancy-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/account-universe.js',import.meta.url),'utf8'),readFile(new URL('../api/buyers.js',import.meta.url),'utf8')
