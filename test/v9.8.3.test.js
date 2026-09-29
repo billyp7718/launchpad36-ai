@@ -23,6 +23,7 @@ import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-sn
 import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
 import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
 import { canSeeAllTenantData } from '../api/_tenant.js';
+import { isPermanentAdminEmail, PERMANENT_ADMIN_EMAIL } from '../api/_identity.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -54,6 +55,42 @@ test('role controls persist canonical roles instead of visually reverting to vie
   assert.match(ui,/current===r\?'selected'/);
   assert.match(ui,/action:'set_role'/);
   assert.match(ui,/d\.permissions\?\.role/);
+});
+
+test('workspace administration opens the existing application modal',async()=>{
+  const ui=await readFile(new URL('../multi-user-ui.js',import.meta.url),'utf8');
+  assert.match(ui,/getElementById\('modalCard'\)/);
+  assert.match(ui,/getElementById\('modal'\)/);
+  assert.match(ui,/dialog\.classList\.add\('show'\)/);
+  assert.match(ui,/showWorkspaceModal\(body\)/);
+  assert.doesNotMatch(ui,/typeof modal==='function'/);
+  assert.doesNotMatch(ui,/document\.body\.appendChild\(host\)/);
+});
+
+test('Retail Revenue hero renders opaque and refreshes after deferred UI enhancement',async()=>{
+  const ui=await readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8');
+  assert.match(ui,/hero l36-revenue-hero/);
+  assert.match(ui,/\.l36-revenue-hero\{opacity:1;filter:none;background-color:#071d3e/);
+  assert.match(ui,/isolation:isolate;contain:paint/);
+  assert.match(ui,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);
+  assert.match(ui,/state\.screen==='Dashboard'.*render\(\)/);
+});
+
+test('designated permanent administrator cannot be downgraded',async()=>{
+  const [identity,migration,teamAdmin,ui]=await Promise.all([
+    readFile(new URL('../api/_identity.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/team-admin.js',import.meta.url),'utf8'),
+    readFile(new URL('../multi-user-ui.js',import.meta.url),'utf8')
+  ]);
+  assert.equal(PERMANENT_ADMIN_EMAIL,'wtpantaleo@gmail.com');
+  assert.equal(isPermanentAdminEmail(' WTPantaleo@gmail.com '),true);
+  assert.equal(isPermanentAdminEmail('another@example.com'),false);
+  assert.match(identity,/set role='admin',updated_at=now\(\).*PERMANENT_ADMIN_EMAIL/);
+  assert.match(migration,/lower\(email\)='wtpantaleo@gmail\.com'.*lower\(role\)<>'admin'/);
+  assert.match(teamAdmin,/isPermanentAdminEmail\(target\.email\).*role!==ROLES\.ADMIN/);
+  assert.match(teamAdmin,/isPermanentAdminEmail\(email\)\?ROLES\.ADMIN/);
+  assert.match(ui,/PERMANENT ADMIN/);
 });
 
 test('tenant-private portfolio and account analyses are team scoped while public intelligence stays shared',async()=>{
