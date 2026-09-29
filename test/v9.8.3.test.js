@@ -22,6 +22,15 @@ import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,
 import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-snapshots.js';
 import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
 
+test('public browser and share metadata use the version-independent product name',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8'),title='Launchpad36 Commercial Intelligence';
+  assert.match(ui,new RegExp(`<title>${title}</title>`));
+  assert.match(ui,new RegExp(`<meta property="og:title" content="${title}">`));
+  assert.match(ui,new RegExp(`<meta name="twitter:title" content="${title}">`));
+  const head=ui.slice(0,ui.indexOf('</head>'));
+  assert.doesNotMatch(head,/V\d+(?:\.\d+)+|Living Commercial Intelligence/);
+});
+
 test('market report email normalizes and limits recipient addresses',()=>{
   assert.deepEqual(reportRecipients('A@Example.com; b@example.com, a@example.com'),['a@example.com','b@example.com']);
   assert.equal(reportRecipients(Array.from({length:20},(_,i)=>`x${i}@example.com`).join(',')).length,10);
