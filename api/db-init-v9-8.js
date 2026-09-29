@@ -14,6 +14,10 @@ update manufacturer_members set role='member' where lower(role) not in('admin','
 alter table brands add column if not exists logo_url text default '';
 alter table brands add column if not exists description text default '';
 alter table brands add column if not exists updated_at timestamptz not null default now();
+alter table brands add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null;
+alter table brands add column if not exists team_id uuid references manufacturer_teams(id) on delete set null;
+alter table brands add column if not exists visibility text not null default 'tenant';
+create index if not exists brands_scope_idx on brands(manufacturer_id,visibility,team_id,owner_user_id);
 
 alter table products add column if not exists product_family text default '';
 alter table products add column if not exists description text default '';
@@ -231,6 +235,10 @@ create table if not exists market_opportunity_scenarios (
  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create index if not exists market_opportunity_scenarios_tenant_idx on market_opportunity_scenarios(manufacturer_id,updated_at desc);
+alter table market_opportunity_scenarios add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null;
+alter table market_opportunity_scenarios add column if not exists team_id uuid references manufacturer_teams(id) on delete set null;
+alter table market_opportunity_scenarios add column if not exists visibility text not null default 'tenant';
+create index if not exists market_opportunity_scenarios_scope_idx on market_opportunity_scenarios(manufacturer_id,visibility,team_id,owner_user_id,updated_at desc);
 
 create table if not exists market_analysis_report_snapshots (
   id uuid primary key default gen_random_uuid(),
@@ -256,6 +264,10 @@ create table if not exists opportunity_workspaces (
  unique(manufacturer_id,organization_id,route_to_market,product_set_key)
 );
 create index if not exists opportunity_workspaces_tenant_idx on opportunity_workspaces(manufacturer_id,status,updated_at desc);
+alter table opportunity_workspaces add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null;
+alter table opportunity_workspaces add column if not exists team_id uuid references manufacturer_teams(id) on delete set null;
+alter table opportunity_workspaces add column if not exists visibility text not null default 'tenant';
+create index if not exists opportunity_workspaces_scope_idx on opportunity_workspaces(manufacturer_id,visibility,team_id,owner_user_id,updated_at desc);
 
 create or replace function prevent_l36_immutable_mutation() returns trigger language plpgsql as $$
 begin raise exception '% is immutable; append a new record instead',tg_table_name; end $$;

@@ -28,4 +28,6 @@ export function tenantWhere(tenantId){
   return tenantId;
 }
 
-export function canSeeAllTenantData(tenant={}){return hasCapability(tenant,CAPABILITIES.SEE_ALL_BUSINESS_DATA)}
+// Tenant-private commercial data is visible across the workspace only to an Administrator.
+// Managers retain full application capabilities but remain scoped to their authenticated teams.
+export function canSeeAllTenantData(tenant={}){return hasCapability(tenant,CAPABILITIES.USER_ADMIN_TENANT)}
