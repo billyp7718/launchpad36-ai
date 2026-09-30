@@ -66,12 +66,13 @@ function canonicalUrl(value){
 
 export function responseOutputText(payload={}){
   if(typeof payload.output_text==='string')return payload.output_text;
+  const chunks=[];
   for(const item of Array.isArray(payload.output)?payload.output:[]){
     for(const part of Array.isArray(item.content)?item.content:[]){
-      if(part.type==='output_text'&&typeof part.text==='string')return part.text;
+      if(part.type==='output_text'&&typeof part.text==='string')chunks.push(part.text);
     }
   }
-  return '';
+  return chunks.join('');
 }
 
 export function responseWebSources(payload={}){
@@ -149,11 +150,18 @@ export async function searchOpenAIBuyers({account,domain,category='',allCategori
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),attemptTimeouts[attempt]);
     try{
       const response=await fetcher(OPENAI_RESPONSES,{method:'POST',headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},signal:controller.signal,body:JSON.stringify({
-        model,reasoning:{effort:attempt===0?'medium':'low'},tools:[{type:'web_search',search_context_size:attempt===0?'high':'medium',user_location:{type:'approximate',country:'US'}}],tool_choice:'auto',include:['web_search_call.action.sources'],input:prompt,max_output_tokens:attempt===0?6000:4500,
+        model,reasoning:{effort:attempt===0?'medium':'low'},tools:[{type:'web_search',search_context_size:attempt===0?'high':'medium',user_location:{type:'approximate',country:'US'}}],tool_choice:'auto',include:['web_search_call.action.sources'],input:prompt,max_output_tokens:attempt===0?12000:9000,
         text:{format:{type:'json_schema',name:'account_buyer_research',strict:true,schema:BUYER_RESEARCH_SCHEMA}}
       })});
       let body={};try{body=await response.json()}catch{}
-      if(response.ok){const normalized=normalizeOpenAIResearch(body,{account,category});return {provider:'openai',model,response_id:clean(body.id,120),attempts:attempt+1,...normalized}}
+      if(response.ok){
+        const normalized=normalizeOpenAIResearch(body,{account,category});
+        if(normalized.status!=='ERROR')return {provider:'openai',model,response_id:clean(body.id,120),attempts:attempt+1,...normalized};
+        const incompleteReason=clean(body.incomplete_details?.reason||(body.status==='incomplete'?'incomplete_response':''),80);
+        lastError=`OpenAI returned incomplete structured buyer data${incompleteReason?` (${incompleteReason})`:''}`;
+        if(attempt+1>=attemptTimeouts.length)break;
+        continue;
+      }
       lastStatus=response.status;lastError=clean(body.error?.message||body.error||`OpenAI returned ${response.status}`,300);
       if(attempt+1>=attemptTimeouts.length||!transientOpenAIStatus(response.status))break;
     }catch(error){
