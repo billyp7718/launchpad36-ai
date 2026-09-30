@@ -13,7 +13,7 @@ import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refr
 import { calculateMarketOpportunity, calculateMultiRouteMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
-import { buyerCategorySearchTerms, normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources } from '../api/_openai-research.js';
+import { buyerCategorySearchTerms, normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources, searchOpenAIBuyers } from '../api/_openai-research.js';
 import { detectBuyerRelationshipChange, relationshipDisposition } from '../api/_buyer-relationships.js';
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
@@ -599,6 +599,23 @@ test('OpenAI buyer research fails closed when citations or structured JSON are m
   const uncited={output_text:JSON.stringify({status:'FOUND',search_summary:'',buyer_candidates:[{name:'Jane Merchant',title:'Buyer',account:'Home Depot',category_scope:'Electronics',source_url:'https://invented.example',source_title:'Unknown',evidence_quote:'Buyer',evidence_date:'',confidence:90,verification_status:'REVIEW_REQUIRED',rationale:''}]})};
   assert.equal(normalizeOpenAIResearch(uncited,{account:'Home Depot'}).people.length,0);
   assert.equal(normalizeOpenAIResearch({output_text:'not-json'},{account:'Home Depot'}).status,'ERROR');
+});
+
+test('OpenAI buyer research retries one transient timeout within the Vercel runtime budget',async()=>{
+  const prior=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY=['regression','test','key'].join('-');
+  const requests=[];
+  try{
+    const result=await searchOpenAIBuyers({account:'Example Retailer',domain:'example.test',category:'Audio'},{attemptTimeouts:[100,100],fetcher:async(_url,options)=>{
+      requests.push(JSON.parse(options.body));
+      if(requests.length===1)throw Object.assign(new Error('aborted'),{name:'AbortError'});
+      return {ok:false,status:400,json:async()=>({error:{message:'deliberate non-transient test response'}})};
+    }});
+    assert.equal(requests.length,2);assert.equal(result.attempts,2);assert.equal(result.http_status,400);assert.match(result.error,/deliberate non-transient/);
+    assert.equal(requests[0].reasoning.effort,'medium');assert.equal(requests[0].tools[0].search_context_size,'high');
+    assert.equal(requests[1].reasoning.effort,'low');assert.equal(requests[1].tools[0].search_context_size,'medium');
+    const config=JSON.parse(await readFile(new URL('../vercel.json',import.meta.url),'utf8'));
+    for(const name of ['account-research','buyer-intelligence','buyer-deep-search'])assert.equal(config.functions[`api/${name}.js`].maxDuration,240);
+  }finally{if(prior===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=prior}
 });
 
 test('OpenAI research uses Responses web search and never exposes the API key',async()=>{
