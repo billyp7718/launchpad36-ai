@@ -3,14 +3,14 @@ import { sessionData, isAdminBearer, isCron } from './_auth.js';
 import { ensureIdentitySchema, memberTeams } from './_identity.js';
 import { CAPABILITIES, canonicalRole, hasCapability } from './_permissions.js';
 
-export async function resolveTenant(req,res,{allowAdminBearer=true,allowCron=false}={}){
+export async function resolveTenant(req,res,{allowAdminBearer=true,allowCron=false,enforceWriteCapability=true}={}){
   const session=sessionData(req);
   if(session?.tenant_id){
     const sql=db();await ensureIdentitySchema(sql);
     let role=canonicalRole(session.role),userId=session.user_id||null;
     if(userId){const member=(await sql`select id,manufacturer_id,role,active from manufacturer_members where id=${userId} and manufacturer_id=${session.tenant_id} limit 1`)[0];if(!member?.active){res.status(401).json({error:'This user session is no longer active'});return null}role=canonicalRole(member.role)}
     const teams=userId?await memberTeams(userId,sql):[],tenant={tenant_id:session.tenant_id,user_id:userId,role,team_ids:teams.map(t=>String(t.id)),teams,source:'session'};
-    if(String(req.method||'GET').toUpperCase()!=='GET'&&!hasCapability(tenant,CAPABILITIES.APP_WRITE)){res.status(403).json({error:'Viewer access is read-only',code:'READ_ONLY'});return null}
+    if(enforceWriteCapability&&String(req.method||'GET').toUpperCase()!=='GET'&&!hasCapability(tenant,CAPABILITIES.APP_WRITE)){res.status(403).json({error:'Viewer access is read-only',code:'READ_ONLY'});return null}
     return tenant;
   }
   if(allowAdminBearer && isAdminBearer(req)){

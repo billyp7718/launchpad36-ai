@@ -24,6 +24,7 @@ import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
 import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
 import { canSeeAllTenantData } from '../api/_tenant.js';
 import { isPermanentAdminEmail, PERMANENT_ADMIN_EMAILS } from '../api/_identity.js';
+import { safeAuditValue } from '../api/_permission-audit.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -89,7 +90,7 @@ test('designated permanent administrator cannot be downgraded',async()=>{
   assert.equal(isPermanentAdminEmail('another@example.com'),false);
   assert.match(identity,/set role='admin',updated_at=now\(\).*PERMANENT_ADMIN_EMAIL/);
   assert.match(migration,/lower\(email\) in\('wtpantaleo@gmail\.com','billp@launchpad36\.com'\).*lower\(role\)<>'admin'/);
-  assert.match(teamAdmin,/isPermanentAdminEmail\(target\.email\).*role!==ROLES\.ADMIN/);
+  assert.match(teamAdmin,/isPermanentAdminEmail\(requestedTarget\.email\).*role!==ROLES\.ADMIN/);
   assert.match(teamAdmin,/isPermanentAdminEmail\(email\)\?ROLES\.ADMIN/);
   assert.match(ui,/PERMANENT ADMIN/);
 });
@@ -119,6 +120,57 @@ test('Opportunity Alerts UI is hidden while backend alert processing remains ava
   assert.doesNotMatch(shell,/opportunity-alerts-ui\.js/);
   assert.match(route,/scanOpportunityAlerts/);
   assert.match(refresh,/opportunity_alerts/);
+});
+
+test('permission audit migration is additive, idempotent and append-only',async()=>{
+  const [identity,migration]=await Promise.all([readFile(new URL('../api/_identity.js',import.meta.url),'utf8'),readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8')]);
+  for(const source of [identity,migration]){
+    assert.match(source,/create table if not exists permission_audit_events/);
+    assert.match(source,/permission_audit_tenant_time_idx/);
+    assert.match(source,/permission_audit_actor_idx/);
+    assert.match(source,/permission_audit_target_idx/);
+    assert.match(source,/permission_audit_events_immutable/);
+    assert.match(source,/before update or delete on permission_audit_events/);
+    assert.doesNotMatch(source,/drop\s+table\s+(?:if exists\s+)?permission_audit_events|truncate\s+permission_audit_events|delete\s+from\s+permission_audit_events/i);
+  }
+});
+
+test('permission audit payloads redact credentials and retain only safe context',()=>{
+  const safe=safeAuditValue({role:'ADMIN',password:'bad',password_hash:'bad',reset_token:'bad',authorization:'bad',cookie:'bad',api_key:'bad',nested:{team:'Sales',session_token:'bad'}});
+  assert.deepEqual(safe,{role:'ADMIN',nested:{team:'Sales'}});
+  assert.doesNotMatch(JSON.stringify(safe),/password|token|authorization|cookie|api_key|bad/i);
+});
+
+test('permission audit access is tenant scoped and Managers are team scoped',async()=>{
+  const source=await readFile(new URL('../api/permission-audit.js',import.meta.url),'utf8');
+  assert.match(source,/pae\.manufacturer_id=\$\{tenant\.tenant_id\}/);
+  assert.match(source,/pae\.target_team_id=any\(\$\{teamIds\}::uuid\[\]\)/);
+  assert.match(source,/mtm\.member_id=pae\.target_user_id/);
+  assert.match(source,/pae\.actor_user_id=\$\{tenant\.user_id\}/);
+  assert.match(source,/Role cannot view permission audit records/);
+  assert.match(source,/Permission Audit Log is available only to Administrators and Managers/);
+  assert.match(source,/Permission audit records are append-only/);
+  assert.doesNotMatch(source,/update permission_audit_events|delete from permission_audit_events/i);
+});
+
+test('user administration audits successful and denied privilege operations',async()=>{
+  const [source,tenantSource]=await Promise.all([readFile(new URL('../api/team-admin.js',import.meta.url),'utf8'),readFile(new URL('../api/_tenant.js',import.meta.url),'utf8')]);
+  for(const action of ['create_user','set_role','assign_team','remove_team','set_active','reset_password'])assert.match(source,new RegExp(`action==='${action}'`));
+  for(const marker of ['Manager attempted to update a user outside authorized teams','Manager attempted cross-team or privileged-user administration','Manager cannot grant','Permanent Administrator cannot be downgraded','Actor cannot administer the requested team','Role has no user administration capability'])assert.match(source,new RegExp(marker));
+  assert.match(source,/result:'SUCCESS'/);assert.match(source,/result:'DENIED'/);assert.match(source,/result:'FAILED'/);
+  assert.match(source,/previous_value:/);assert.match(source,/new_value:/);
+  assert.match(source,/Target user is outside this tenant/);
+  assert.match(source,/resolveTenant\(req,res,\{enforceWriteCapability:false\}\)/);
+  assert.match(tenantSource,/enforceWriteCapability=true/);
+  assert.doesNotMatch(source,/target_user:requestedTarget\|\|\{id:memberId\}/);
+  assert.doesNotMatch(source,/target_team:targetTeam\|\|\{id:teamId\}/);
+});
+
+test('Admin and Manager user administration exposes permission audit filters',async()=>{
+  const ui=await readFile(new URL('../multi-user-ui.js',import.meta.url),'utf8');
+  for(const marker of ['Permission Audit Log','paDateFrom','paDateTo','paActor','paTarget','paTeam','paAction','paResult','/api/permission-audit'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/Managers see only events within their authorized teams/);
+  assert.match(ui,/auditValue\(event\.previous_value\)/);assert.match(ui,/auditValue\(event\.new_value\)/);
 });
 
 test('tenant-private portfolio and account analyses are team scoped while public intelligence stays shared',async()=>{

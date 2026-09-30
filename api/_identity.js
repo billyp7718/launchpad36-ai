@@ -47,6 +47,21 @@ export async function ensureIdentitySchema(sql=db()){
   await sql`create index if not exists market_opportunity_scenarios_scope_idx on market_opportunity_scenarios(manufacturer_id,visibility,team_id,owner_user_id,updated_at desc)`;
   await sql`create table if not exists tenant_activity_log(id bigserial primary key,manufacturer_id uuid not null references manufacturers(id) on delete cascade,user_id uuid references manufacturer_members(id) on delete set null,action text not null,subject_type text not null,subject_id text default '',metadata jsonb not null default '{}'::jsonb,created_at timestamptz not null default now())`;
   await sql`create index if not exists tenant_activity_log_idx on tenant_activity_log(manufacturer_id,created_at desc)`;
+  await sql`create table if not exists permission_audit_events(
+    id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete restrict,
+    actor_user_id uuid references manufacturer_members(id) on delete restrict, actor_name text not null default '', actor_role text not null default '',
+    action_type text not null, target_user_id uuid references manufacturer_members(id) on delete restrict, target_user_name text not null default '',
+    target_team_id uuid references manufacturer_teams(id) on delete restrict, target_team_name text not null default '',
+    previous_value jsonb not null default '{}'::jsonb, new_value jsonb not null default '{}'::jsonb,
+    result text not null check(result in('SUCCESS','DENIED','FAILED')), reason text not null default '', request_id text not null default '',
+    created_at timestamptz not null default now()
+  )`;
+  await sql`create index if not exists permission_audit_tenant_time_idx on permission_audit_events(manufacturer_id,created_at desc)`;
+  await sql`create index if not exists permission_audit_actor_idx on permission_audit_events(manufacturer_id,actor_user_id,created_at desc)`;
+  await sql`create index if not exists permission_audit_target_idx on permission_audit_events(manufacturer_id,target_user_id,target_team_id,created_at desc)`;
+  await sql`create or replace function prevent_permission_audit_mutation() returns trigger language plpgsql as $$ begin raise exception 'permission_audit_events is immutable; append a new record instead'; end $$`;
+  await sql`drop trigger if exists permission_audit_events_immutable on permission_audit_events`;
+  await sql`create trigger permission_audit_events_immutable before update or delete on permission_audit_events for each row execute function prevent_permission_audit_mutation()`;
   await sql`create table if not exists crm_connections(id uuid primary key default gen_random_uuid(),manufacturer_id uuid not null references manufacturers(id) on delete cascade,provider text not null,encrypted_token text not null default '',settings jsonb not null default '{}'::jsonb,active boolean not null default true,created_by uuid references manufacturer_members(id) on delete set null,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),unique(manufacturer_id,provider))`;
   await sql`create table if not exists crm_sync_mappings(id bigserial primary key,manufacturer_id uuid not null references manufacturers(id) on delete cascade,provider text not null,opportunity_id uuid not null references opportunity_workspaces(id) on delete cascade,external_company_id text default '',external_contact_id text default '',external_deal_id text default '',last_synced_at timestamptz,last_status text default '',last_error text default '',unique(manufacturer_id,provider,opportunity_id))`;
   await sql`create index if not exists crm_sync_mapping_idx on crm_sync_mappings(manufacturer_id,provider,last_synced_at desc)`;
