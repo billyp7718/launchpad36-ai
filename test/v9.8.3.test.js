@@ -618,6 +618,20 @@ test('OpenAI buyer research retries one transient timeout within the Vercel runt
   }finally{if(prior===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=prior}
 });
 
+test('OpenAI buyer research retries incomplete structured output without accepting malformed data',async()=>{
+  const prior=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY=['regression','test','key'].join('-');
+  const requests=[];
+  try{
+    const result=await searchOpenAIBuyers({account:'Example Retailer',domain:'example.test',category:'Audio'},{attemptTimeouts:[100,100],fetcher:async(_url,options)=>{
+      requests.push(JSON.parse(options.body));
+      if(requests.length===1)return {ok:true,status:200,json:async()=>({id:'first',status:'incomplete',incomplete_details:{reason:'max_output_tokens'},output_text:'{"status":"FOUND"'})};
+      return {ok:true,status:200,json:async()=>({id:'second',output:[{type:'message',content:[{type:'output_text',text:'{"status":"NO_'},{type:'output_text',text:'RESULTS","search_summary":"No attributable candidate.","category_owner_status":"NOT_CONFIRMED","buyer_candidates":[]}'}]}]})};
+    }});
+    assert.equal(requests.length,2);assert.equal(result.attempts,2);assert.equal(result.status,'NO_RESULTS');assert.equal(result.response_id,'second');
+    assert.equal(requests[0].max_output_tokens,12000);assert.equal(requests[1].max_output_tokens,9000);
+  }finally{if(prior===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=prior}
+});
+
 test('OpenAI research uses Responses web search and never exposes the API key',async()=>{
   const source=await readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8');
   assert.match(source,/api\.openai\.com\/v1\/responses/);assert.match(source,/type:'web_search'/);assert.match(source,/web_search_call\.action\.sources/);assert.match(source,/type:'json_schema'/);assert.match(source,/REVIEW_REQUIRED/);
