@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/account-research.js": { "maxDuration": 240 },
+    "api/buyer-intelligence.js": { "maxDuration": 240 },
+    "api/buyer-deep-search.js": { "maxDuration": 240 }
+  },
   "routes": [
     { "src": "^/$", "dest": "/api/app-shell" },
     { "handle": "filesystem" }
