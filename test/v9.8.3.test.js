@@ -94,6 +94,22 @@ test('designated permanent administrator cannot be downgraded',async()=>{
   assert.match(ui,/PERMANENT ADMIN/);
 });
 
+test('Evidence Explorer and Health Check authorize the current database role',async()=>{
+  const [tenant,session,evidenceStatus,systemStatus]=await Promise.all([
+    readFile(new URL('../api/_tenant.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/auth-session.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/living-intelligence-status.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/system-status.js',import.meta.url),'utf8')
+  ]);
+  assert.match(tenant,/export async function resolveInternalTenant/);
+  assert.match(tenant,/hasCapability\(tenant,CAPABILITIES\.TENANT_SECURITY\)/);
+  assert.match(session,/createSessionCookie\(\{role:permissions\.role/);
+  for(const source of [evidenceStatus,systemStatus]){
+    assert.match(source,/await resolveInternalTenant\(req,\s*res\)/);
+    assert.doesNotMatch(source,/requireInternal/);
+  }
+});
+
 test('tenant-private portfolio and account analyses are team scoped while public intelligence stays shared',async()=>{
   const [identity,migration,brands,portfolio,products,overlays,opportunities,market,scenarios,catalogImport,phase2,universe,buyers]=await Promise.all([
     readFile(new URL('../api/_identity.js',import.meta.url),'utf8'),readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),readFile(new URL('../api/brands.js',import.meta.url),'utf8'),readFile(new URL('../api/portfolio.js',import.meta.url),'utf8'),readFile(new URL('../api/products.js',import.meta.url),'utf8'),readFile(new URL('../api/account-overlays.js',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8'),readFile(new URL('../api/market-scenarios.js',import.meta.url),'utf8'),readFile(new URL('../api/catalog-import.js',import.meta.url),'utf8'),readFile(new URL('../phase2-tenancy-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/account-universe.js',import.meta.url),'utf8'),readFile(new URL('../api/buyers.js',import.meta.url),'utf8')

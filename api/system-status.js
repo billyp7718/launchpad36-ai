@@ -1,5 +1,5 @@
 import { db } from './_db.js';
-import { requireInternal } from './_auth.js';
+import { resolveInternalTenant } from './_tenant.js';
 
 const REQUIRED_TABLES = [
   'manufacturers',
@@ -29,7 +29,7 @@ async function count(sql, table) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-  if (!requireInternal(req, res)) return;
+  if (!await resolveInternalTenant(req, res)) return;
 
   const components = [];
   const version = process.env.npm_package_version || '9.8.3';
