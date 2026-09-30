@@ -1,8 +1,8 @@
 import { db } from './_db.js';
-import { requireInternal } from './_auth.js';
+import { resolveInternalTenant } from './_tenant.js';
 
 export default async function handler(req,res){
-  if(!requireInternal(req,res))return;if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});
+  if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});if(!await resolveInternalTenant(req,res))return;
   try{
     const sql=db(),limit=Math.min(Math.max(Number(req.query?.limit)||100,1),500),organizationId=String(req.query?.organization_id||'').trim();
     const rows=organizationId

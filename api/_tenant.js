@@ -31,3 +31,11 @@ export function tenantWhere(tenantId){
 // Tenant-private commercial data is visible across the workspace only to an Administrator.
 // Managers retain full application capabilities but remain scoped to their authenticated teams.
 export function canSeeAllTenantData(tenant={}){return hasCapability(tenant,CAPABILITIES.USER_ADMIN_TENANT)}
+
+export async function resolveInternalTenant(req,res){
+  const tenant=await resolveTenant(req,res,{allowAdminBearer:true,allowCron:true});
+  if(!tenant)return null;
+  if(tenant.source==='cron'||tenant.source==='admin_bearer'||hasCapability(tenant,CAPABILITIES.TENANT_SECURITY))return tenant;
+  res.status(403).json({error:'Administrator authentication required',code:'FORBIDDEN',required_capability:CAPABILITIES.TENANT_SECURITY});
+  return null;
+}
