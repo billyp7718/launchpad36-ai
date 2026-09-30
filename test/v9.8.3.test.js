@@ -510,6 +510,7 @@ test('account research joins product and buyer evidence to the selected organiza
 test('saved competitive products can be reloaded by organization',async()=>{
   const [source,ui]=await Promise.all([readFile(new URL('../api/competitive-products.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
   assert.match(source,/organization_id/);assert.match(source,/join accounts a on a\.id=cp\.account_id/);assert.match(source,/cp\.active=true/);
+  assert.match(source,/resolveTenant/);assert.match(source,/CAPABILITIES\.APP_READ/);assert.match(source,/CAPABILITIES\.APP_WRITE/);assert.doesNotMatch(source,/requireAdmin/);
   assert.match(ui,/loadSavedAccountProducts/);assert.match(ui,/Saved account products/);assert.match(ui,/competitive-products\?organization_id=/);
 });
 
