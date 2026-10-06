@@ -4,9 +4,11 @@ import { reportFilename,reportSnapshotHash,validateReportSnapshot } from './_mar
 
 const MAX_EMAIL_HTML_BYTES=2*1024*1024;
 const clean=value=>String(value||'').trim();
+const escapeHtml=value=>String(value||'').replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+function downloadOnlyEmailHtml(report){return `<!doctype html><html><body><h1>${escapeHtml(report.title)}</h1><p>${escapeHtml(report.brand)} account opportunity analysis generated ${escapeHtml(report.generated_at)}.</p><p>This immutable snapshot was created for an authenticated PDF download. Modeled opportunity values are planning estimates and are not verified retailer sales.</p></body></html>`}
 
 export async function createReportSnapshot(sql,tenantId,{snapshot,email_html}={}){
-  const report=validateReportSnapshot(snapshot),emailHtml=clean(email_html);
+  const report=validateReportSnapshot(snapshot),suppliedEmailHtml=clean(email_html),emailHtml=suppliedEmailHtml||downloadOnlyEmailHtml(report);
   if(emailHtml.length<100)throw new Error('The PDF snapshot email body is missing or incomplete');
   if(Buffer.byteLength(emailHtml,'utf8')>MAX_EMAIL_HTML_BYTES)throw new Error('The PDF snapshot email body exceeds the 2 MB safety limit');
   const contentHash=reportSnapshotHash(report,emailHtml),filename=reportFilename(report.brand,report.generated_at);
