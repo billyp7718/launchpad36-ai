@@ -29,6 +29,8 @@ import { calculateTrustScore, trustLevel } from '../api/_trust-score.js';
 import { evaluateProductIdentityMatch, normalizeIdentifier } from '../api/_product-identity.js';
 import { evidencePresentation, shouldPromoteObservation } from '../api/_field-evidence.js';
 import { INTELLIGENCE_FOUNDATION_SQL } from '../api/db-init-intelligence-foundation.js';
+import { REVENUE_MISSION_SQL } from '../api/db-init-revenue-missions.js';
+import { calculateMissionMetrics, evaluateMissionOpportunity, missionNextActions, normalizePipelineStage } from '../api/_revenue-missions.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -1161,4 +1163,43 @@ test('intelligence foundation APIs enforce tenant scope and avoid client-side pr
   assert.doesNotMatch(`${fieldApi}${trustApi}${identityApi}`,/OPENAI_API_KEY|FIRECRAWL_API_KEY|APOLLO_API_KEY/);
   for(const table of ['entity_field_observations','canonical_products','retailer_product_listings','l36_trust_evaluations'])assert.match(status,new RegExp(table));
   assert.match(ui,/db-init-intelligence-foundation/);
+});
+
+test('Revenue Mission migration is additive, idempotent and preserves immutable history',()=>{
+  for(const table of ['revenue_missions','revenue_mission_opportunities','revenue_mission_events'])assert.match(REVENUE_MISSION_SQL,new RegExp(`create table if not exists ${table}`));
+  assert.match(REVENUE_MISSION_SQL,/revenue_mission_events_immutable/);assert.match(REVENUE_MISSION_SQL,/before update or delete on revenue_mission_events/);
+  assert.doesNotMatch(REVENUE_MISSION_SQL,/drop\s+(table|column)|truncate|delete\s+from|update\s+(accounts|buyers|products|opportunity_workspaces)/i);
+  for(const field of ['manufacturer_id','owner_user_id','team_id','visibility','target_revenue','confidence_adjusted_pipeline'])assert.match(REVENUE_MISSION_SQL,new RegExp(field));
+});
+
+test('Revenue Mission funnel metrics are deterministic and keep modeled revenue distinct from confidence',()=>{
+  const row=(id,stage,amount)=>({opportunity_id:id,pipeline_stage:stage,scenario:{account:{name:`Account ${id}`,base_manufacturer_revenue:amount,fit_score:82,evidence_status:'REVIEW_REQUIRED',evidence_count:1},proposed_assortment:[{dealer_cost:50,monthly_sales_volume:2,fit_score:80}]},next_action:'Review'});
+  const metrics=calculateMissionMetrics({target_revenue:2000},[row('1','IDENTIFIED',100),row('2','QUALIFIED',200),row('3','BUYER_CONFIRMED',300),row('4','COMMITTED',400),row('5','WON',500),row('6','LOST',600)]);
+  assert.equal(metrics.identified_revenue,1500);assert.equal(metrics.qualified_pipeline,1400);assert.equal(metrics.buyer_confirmed_pipeline,1200);assert.equal(metrics.committed_revenue,900);assert.equal(metrics.won_revenue,500);assert.equal(metrics.remaining_gap,1500);assert.equal(metrics.opportunity_count,6);assert.equal(metrics.open_opportunity_count,4);
+  assert.ok(metrics.confidence_adjusted_pipeline>0);assert.ok(metrics.confidence_adjusted_pipeline<1000);assert.ok(metrics.average_trust_score>0);assert.equal(normalizePipelineStage('buyer_confirmed'),'BUYER_CONFIRMED');assert.throws(()=>normalizePipelineStage('invented'));
+});
+
+test('Revenue Mission actions disclose evidence gaps and require approval for commercial progression',()=>{
+  const evaluated=evaluateMissionOpportunity({opportunity_id:'one',pipeline_stage:'IDENTIFIED',scenario:{account:{name:'Example Retailer',base_manufacturer_revenue:125000,fit_score:90,evidence_status:'INSUFFICIENT'},proposed_assortment:[]}});
+  const actions=missionNextActions([evaluated],125000);assert.ok(actions.some(item=>/Verify current assortment/.test(item.action)));assert.ok(actions.some(item=>/category owner/.test(item.action)));assert.ok(actions.some(item=>/sell-in assumptions/.test(item.action)));assert.ok(actions.some(item=>item.approval_required===true));assert.equal(evaluated.evidence_status,'INSUFFICIENT');
+});
+
+test('Revenue Mission API enforces tenant scope and exposes no destructive endpoint',async()=>{
+  const source=await readFile(new URL('../api/revenue-missions.js',import.meta.url),'utf8');
+  assert.match(source,/resolveTenant\(req,res\)/);assert.match(source,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(source,/validateProducts/);assert.match(source,/validateOpportunities/);assert.match(source,/canAccess/);assert.match(source,/team_ids/);assert.match(source,/Only an Administrator can create a tenant-wide mission/);
+  assert.doesNotMatch(source,/req\.method==='DELETE'|delete\s+from/i);assert.match(source,/PIPELINE_STAGE_CHANGED/);assert.match(source,/SCHEMA_REQUIRED/);
+});
+
+test('Find Me Revenue renders mission progress from existing opportunity workspaces',async()=>{
+  const [ui,shell,index]=await Promise.all([readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  for(const marker of ['REVENUE MISSIONS','Create Revenue Mission','Target','Identified','Qualified','Buyer Confirmed','Remaining Gap','Confidence-adjusted','L36 Trust','Human approval is required','currentOpportunityIds'])assert.match(ui,new RegExp(marker,'i'));
+  assert.match(ui,/state\.marketOpportunity\?\.workspaces/);
+  assert.match(ui,/\/api\/revenue-missions/);assert.doesNotMatch(ui,/mailto:|sendEmail|automatic.{0,20}(email|contact)/i);assert.match(shell,/revenue-missions-ui\.js/);assert.match(index,/db-init-revenue-missions/);
+});
+
+test('opportunity and weekly research recalculation refresh linked Revenue Missions without requiring the new schema',async()=>{
+  const [opportunities,market,weekly,status]=await Promise.all([readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8')]);
+  for(const source of [opportunities,market]){assert.match(source,/refreshRevenueMissionsForOpportunities/);assert.match(source,/42P01/)}
+  assert.match(weekly,/refreshAllRevenueMissions/);assert.match(weekly,/revenue_missions_refreshed/);
+  for(const table of ['revenue_missions','revenue_mission_opportunities','revenue_mission_events'])assert.match(status,new RegExp(table));
 });
