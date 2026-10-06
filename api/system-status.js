@@ -22,7 +22,10 @@ const REQUIRED_TABLES = [
   'retailer_product_listings',
   'retailer_listing_observations',
   'product_identity_matches',
-  'l36_trust_evaluations'
+  'l36_trust_evaluations',
+  'revenue_missions',
+  'revenue_mission_opportunities',
+  'revenue_mission_events'
 ];
 
 function component(name, status, detail, extra = {}) {

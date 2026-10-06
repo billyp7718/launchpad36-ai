@@ -27,6 +27,7 @@ export default async function handler(req,res){
       '/market-account-scope-ui.js',
       '/intelligence-foundation-ui.js',
       '/sell-in-scenario-ui.js',
+      '/revenue-missions-ui.js',
       '/pitch-deck-ui.js'
     ].map(src=>`<script src="${src}" defer></script>`).join('');
     const marker='</body>';

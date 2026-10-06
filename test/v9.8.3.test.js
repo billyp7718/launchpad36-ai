@@ -30,6 +30,9 @@ import { evaluateProductIdentityMatch, normalizeIdentifier } from '../api/_produ
 import { evidencePresentation, shouldPromoteObservation } from '../api/_field-evidence.js';
 import { INTELLIGENCE_FOUNDATION_SQL } from '../api/db-init-intelligence-foundation.js';
 import { buildSellInScenario } from '../api/_sell-in-scenario.js';
+import { buildAccountIntelligenceSummary, inStoreCoverage, selectCategoryOwner } from '../api/_account-intelligence-summary.js';
+import { REVENUE_MISSION_SQL } from '../api/db-init-revenue-missions.js';
+import { calculateMissionMetrics, evaluateMissionOpportunity, missionNextActions, normalizePipelineStage } from '../api/_revenue-missions.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -298,6 +301,12 @@ test('production-scale Market Opportunity resolves five selected products and ex
 test('market report validation identifies the missing snapshot component',()=>{
   assert.throws(()=>validateReportSnapshot({selected_products:[],accounts:[{}]}),/PDF snapshot contains no selected products/);
   assert.throws(()=>validateReportSnapshot({selected_products:[{name:'ErgoAV Product'}],accounts:[]}),/PDF snapshot contains no included accounts/);
+});
+
+test('download-only account briefs create an immutable snapshot without a legacy email body',async()=>{
+  let inserted=null;const sql=async(strings,...values)=>{const query=strings.join('?');if(query.includes('select id,title'))return [];if(query.includes('insert into market_analysis_report_snapshots')){inserted={id:'33333333-3333-3333-3333-333333333333',title:values[1],brand_name:values[2],analysis_date:values[3],filename:values[4],content_hash:values[5],report_snapshot:values[6],email_html:values[7],created_at:new Date().toISOString()};return [inserted]}throw new Error(`Unexpected SQL: ${query}`)};sql.json=value=>value;
+  const row=await createReportSnapshot(sql,'tenant-1',{snapshot:reportFixture(1),email_html:''});
+  assert.equal(row.id,inserted.id);assert.match(inserted.email_html,/authenticated PDF download/);assert.ok(inserted.email_html.length>=100);assert.match(inserted.email_html,/not verified retailer sales/);
 });
 
 test('email attachment preparation fails closed when PDF generation or size validation fails',async()=>{
@@ -1021,8 +1030,16 @@ test('opportunity details support editable proposed assortments and account comp
   assert.match(apiSource,/proposed_assortment/);assert.match(apiSource,/assortment_updated_at/);assert.match(apiSource,/manufacturer_id=\$\{tenant\.tenant_id\}/);
   assert.match(apiSource,/from commercial_evidence ce join evidence_sources es/);assert.match(apiSource,/from competitive_products cp join accounts a/);
   assert.match(apiSource,/competitive_offerings/);assert.match(apiSource,/b\.email/);assert.match(apiSource,/b\.phone/);assert.match(apiSource,/b\.linkedin/);
-  for(const marker of ['Opportunity Buyer','Assign Buyer','saveOpportunityBuyer','Research All Buyers'])assert.match(ui,new RegExp(marker));
-  assert.match(apiSource,/assigned_buyer_id/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+  for(const marker of ['Opportunity Buyers','Save Buyers','saveOpportunityBuyers','Research All Buyers'])assert.match(ui,new RegExp(marker));
+  assert.match(apiSource,/assigned_buyer_ids/);assert.match(apiSource,/assigned_buyers/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+});
+
+test('account opportunity model consolidates account tabs, SKUs and buyers into an executive PDF',async()=>{
+  const [ui,apiSource,pdfSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/_market-report.js',import.meta.url),'utf8')]);
+  for(const marker of ['Combine products from this account','accountTabAssortment','mergeOpportunityTabAssortments','Download Executive Brief','downloadAccountOpportunityBrief','consolidatedOpportunityPlan','market-report-snapshots','market-report-pdf'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/new Set\(current\.map\(item=>skuComparisonKey\(item\)\)\)/);
+  assert.match(ui,/assigned_buyer_ids/);assert.match(apiSource,/assignedBuyers\.length!==buyerIds\.length/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+  assert.match(pdfSource,/Executive Takeaways/);assert.match(pdfSource,/recommended_actions/);assert.match(pdfSource,/modeled estimates/);
 });
 
 test('account assortment comparison adds and removes exact SKUs and saves membership with channel status',async()=>{
@@ -1184,4 +1201,68 @@ test('sell-in scenario storage is additive, idempotent and tenant scoped',async(
 
 test('opportunity workspace exposes saved scenario comparison and visible assumptions',async()=>{
   const ui=await readFile(new URL('../sell-in-scenario-ui.js',import.meta.url),'utf8');for(const marker of ['SELL-IN SCENARIO PLANNER','Conservative','Regional Pilot','Recommended','National','Stores','Monthly Units','Monthly Wholesale','Year 1 Wholesale','Confidence','MODELED','USER ENTERED','not verified retailer sales','dealer cost × units/store/month × stores × 12','pilot markets','display assumptions','marketing assumptions','promotional period','launch date'])assert.match(ui,new RegExp(marker,'i'));assert.match(ui,/api\/sell-in-scenarios/);assert.match(ui,/originalOpen/);assert.match(ui,/openOpportunityWorkspace/);assert.match(ui,/selected_skus/);assert.match(ui,/data-capability="APP_WRITE"/);assert.match(ui,/!can\('APP_WRITE'\)/);
+});
+
+test('Account Intelligence Summary answers the four commercial questions from attributable data',()=>{
+  const now=new Date().toISOString(),summary=buildAccountIntelligenceSummary({organization:{id:'org-1',name:'Example Retailer',last_verified:now},target:{fit_score:88,whitespace_score:76},workspaces:[{id:'workspace-1',status:'ready',next_action:'Build a 50-store pilot proposal',updated_at:now,scenario:{account:{fit_score:92,fit_reason:'Audio category and channel profile align',base_manufacturer_revenue:875000,evidence_status:'VERIFIED'},proposed_assortment:[{product_id:'p1',product_name:'Reference Speaker',brand_name:'Demo Audio',sku:'DA-100',dealer_cost:200,monthly_sales_volume:10,annual_revenue:240000}]}}],buyers:[{name:'Jordan Merchant',title:'Audio Category Manager',department:'Consumer Electronics',category_scope:'Audio and Home Theater',buyer_role:'CATEGORY_OWNER',identity_confidence:94,category_confidence:91,employment_verification_status:'VERIFIED',category_verification_status:'VERIFIED',employment_evidence_url:'https://retailer.example/team',category_evidence_url:'https://retailer.example/audio-team',category_last_verified:now}],evidence:[{payload:{offerings:[{name:'Soundbar','store_verification':'CONFIRMED_AT_LOCATION'}]},source_url:'https://retailer.example/audio',source_kind:'official_retailer',publisher:'Example Retailer',observed_at:now,last_verified_at:now,verification_status:'VERIFIED',evidence_type:'retailer_assortment'}]});
+  assert.equal(summary.opportunity.value,875000);assert.equal(summary.opportunity.status,'MODELED');assert.equal(summary.fit.score,92);assert.equal(summary.assortment_gap.label,'High');assert.equal(summary.buyer.ownership_confirmed,true);assert.equal(summary.in_store_coverage.status,'VERIFIED');assert.equal(summary.products.length,1);assert.equal(summary.next_best_action.approval_required,true);assert.ok(summary.trust_score>0);assert.ok(summary.sources.length>=2);
+});
+
+test('Account Intelligence Summary fails closed when category, assortment or opportunity support is missing',()=>{
+  const buyer=selectCategoryOwner([{name:'Generic Buyer',title:'Senior Buyer',identity_confidence:90,category_confidence:95,employment_verification_status:'VERIFIED',category_verification_status:'UNCONFIRMED',category_scope:'Audio'}]);assert.equal(buyer.identified,true);assert.equal(buyer.ownership_confirmed,false);assert.equal(buyer.category_confidence,0);assert.equal(buyer.category_scope,'Unconfirmed');assert.equal(buyer.category_status,'UNCONFIRMED');
+  assert.equal(selectCategoryOwner([{name:'Former Category Owner',identity_confidence:90,category_confidence:95,employment_verification_status:'UNCONFIRMED',category_verification_status:'VERIFIED',category_scope:'Audio'}]).ownership_confirmed,false);
+  assert.deepEqual(inStoreCoverage([{payload:{offerings:[{availability:'Available online'}]},verification_status:'REVIEW_REQUIRED'}]).label,'Online Only / Store Unknown');
+  const summary=buildAccountIntelligenceSummary({organization:{id:'org-2',name:'Unknown Account'},buyers:[{name:'Generic Buyer',title:'Senior Buyer',identity_confidence:90,category_confidence:95,employment_verification_status:'VERIFIED',category_verification_status:'UNCONFIRMED',category_scope:'Audio'}]});assert.equal(summary.opportunity.status,'NEEDS_RESEARCH');assert.equal(summary.assortment_gap.label,'Unconfirmed');assert.equal(summary.in_store_coverage.label,'Unconfirmed');assert.equal(summary.next_best_action.action,'Run Find Me Revenue for this account');assert.equal(summary.last_verified_at,null);
+});
+
+test('Account Intelligence Summary combines multiple brand workspaces without duplicating SKUs',()=>{
+  const workspace=(id,items)=>({id,scenario:{account:{base_manufacturer_revenue:999999,fit_score:80},proposed_assortment:items}}),shared={product_id:'p1',product_name:'Speaker',brand_name:'Brand A',sku:'SP-1',dealer_cost:100,monthly_sales_volume:2,annual_revenue:2400},summary=buildAccountIntelligenceSummary({organization:{id:'org-3',name:'Multi Brand Account'},workspaces:[workspace('one',[shared]),workspace('two',[{...shared,annual_revenue:1800},{product_id:'p2',product_name:'Soundbar',brand_name:'Brand B',sku:'SB-2',dealer_cost:200,monthly_sales_volume:3,annual_revenue:7200}])]});
+  assert.equal(summary.workspace_count,2);assert.equal(summary.products.length,2);assert.equal(summary.opportunity.value,9600);assert.equal(summary.important_distinctions.opportunity,'MODELED');
+});
+
+test('Account Intelligence Summary API keeps tenant-private workspaces scoped server-side',async()=>{
+  const source=await readFile(new URL('../api/account-intelligence-summary.js',import.meta.url),'utf8');assert.match(source,/resolveTenant\(req,res\)/);assert.match(source,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(source,/owner_user_id=\$\{tenant\.user_id\}/);assert.match(source,/visibility='team'/);assert.match(source,/team_id=any/);assert.match(source,/visibility='tenant'/);assert.match(source,/commercial_evidence/);assert.match(source,/organization_id=\$\{organizationId\}/);assert.doesNotMatch(source,/OPENAI_API_KEY|FIRECRAWL_API_KEY|APOLLO_API_KEY/);
+});
+
+test('Account 360 renders a progressive-disclosure Intelligence Summary without relabeling models as facts',async()=>{
+  const ui=await readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8');for(const marker of ['ACCOUNT INTELLIGENCE SUMMARY','What can I sell here?','Why should this retailer buy it?','Who owns the decision?','What should I do next?','Opportunity','Assortment Gap','Buyer Identified','In-Store Coverage','Last Verified','L36 Trust Score','Next Best Action','details','Attributable sources','Modeled manufacturer revenue','Unconfirmed'])assert.match(ui,new RegExp(marker,'i'));assert.match(ui,/api\/account-intelligence-summary\?organization_id=/);assert.match(ui,/accountIntelligenceSummaryHtml/);assert.match(ui,/Human approval required/);assert.doesNotMatch(ui,/verified retailer revenue/i);
+});
+
+test('Revenue Mission migration is additive, idempotent and preserves immutable history',()=>{
+  for(const table of ['revenue_missions','revenue_mission_opportunities','revenue_mission_events'])assert.match(REVENUE_MISSION_SQL,new RegExp(`create table if not exists ${table}`));
+  assert.match(REVENUE_MISSION_SQL,/revenue_mission_events_immutable/);assert.match(REVENUE_MISSION_SQL,/before update or delete on revenue_mission_events/);
+  assert.doesNotMatch(REVENUE_MISSION_SQL,/drop\s+(table|column)|truncate|delete\s+from|update\s+(accounts|buyers|products|opportunity_workspaces)/i);
+  for(const field of ['manufacturer_id','owner_user_id','team_id','visibility','target_revenue','confidence_adjusted_pipeline'])assert.match(REVENUE_MISSION_SQL,new RegExp(field));
+});
+
+test('Revenue Mission funnel metrics are deterministic and keep modeled revenue distinct from confidence',()=>{
+  const row=(id,stage,amount)=>({opportunity_id:id,pipeline_stage:stage,scenario:{account:{name:`Account ${id}`,base_manufacturer_revenue:amount,fit_score:82,evidence_status:'REVIEW_REQUIRED',evidence_count:1},proposed_assortment:[{dealer_cost:50,monthly_sales_volume:2,fit_score:80}]},next_action:'Review'});
+  const metrics=calculateMissionMetrics({target_revenue:2000},[row('1','IDENTIFIED',100),row('2','QUALIFIED',200),row('3','BUYER_CONFIRMED',300),row('4','COMMITTED',400),row('5','WON',500),row('6','LOST',600)]);
+  assert.equal(metrics.identified_revenue,1500);assert.equal(metrics.qualified_pipeline,1400);assert.equal(metrics.buyer_confirmed_pipeline,1200);assert.equal(metrics.committed_revenue,900);assert.equal(metrics.won_revenue,500);assert.equal(metrics.remaining_gap,1500);assert.equal(metrics.opportunity_count,6);assert.equal(metrics.open_opportunity_count,4);
+  assert.ok(metrics.confidence_adjusted_pipeline>0);assert.ok(metrics.confidence_adjusted_pipeline<1000);assert.ok(metrics.average_trust_score>0);assert.equal(normalizePipelineStage('buyer_confirmed'),'BUYER_CONFIRMED');assert.throws(()=>normalizePipelineStage('invented'));
+});
+
+test('Revenue Mission actions disclose evidence gaps and require approval for commercial progression',()=>{
+  const evaluated=evaluateMissionOpportunity({opportunity_id:'one',pipeline_stage:'IDENTIFIED',scenario:{account:{name:'Example Retailer',base_manufacturer_revenue:125000,fit_score:90,evidence_status:'INSUFFICIENT'},proposed_assortment:[]}});
+  const actions=missionNextActions([evaluated],125000);assert.ok(actions.some(item=>/Verify current assortment/.test(item.action)));assert.ok(actions.some(item=>/category owner/.test(item.action)));assert.ok(actions.some(item=>/sell-in assumptions/.test(item.action)));assert.ok(actions.some(item=>item.approval_required===true));assert.equal(evaluated.evidence_status,'INSUFFICIENT');
+});
+
+test('Revenue Mission API enforces tenant scope and exposes no destructive endpoint',async()=>{
+  const source=await readFile(new URL('../api/revenue-missions.js',import.meta.url),'utf8');
+  assert.match(source,/resolveTenant\(req,res\)/);assert.match(source,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(source,/validateProducts/);assert.match(source,/validateOpportunities/);assert.match(source,/canAccess/);assert.match(source,/team_ids/);assert.match(source,/Only an Administrator can create a tenant-wide mission/);
+  assert.doesNotMatch(source,/req\.method==='DELETE'|delete\s+from/i);assert.match(source,/PIPELINE_STAGE_CHANGED/);assert.match(source,/SCHEMA_REQUIRED/);
+});
+
+test('Find Me Revenue renders mission progress from existing opportunity workspaces',async()=>{
+  const [ui,shell,index]=await Promise.all([readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  for(const marker of ['REVENUE MISSIONS','Create Revenue Mission','Target','Identified','Qualified','Buyer Confirmed','Remaining Gap','Confidence-adjusted','L36 Trust','Human approval is required','currentOpportunityIds'])assert.match(ui,new RegExp(marker,'i'));
+  assert.match(ui,/state\.marketOpportunity\?\.workspaces/);
+  assert.match(ui,/\/api\/revenue-missions/);assert.doesNotMatch(ui,/mailto:|sendEmail|automatic.{0,20}(email|contact)/i);assert.match(shell,/revenue-missions-ui\.js/);assert.match(index,/db-init-revenue-missions/);
+});
+
+test('opportunity and weekly research recalculation refresh linked Revenue Missions without requiring the new schema',async()=>{
+  const [opportunities,market,weekly,status]=await Promise.all([readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8')]);
+  for(const source of [opportunities,market]){assert.match(source,/refreshRevenueMissionsForOpportunities/);assert.match(source,/42P01/)}
+  assert.match(weekly,/refreshAllRevenueMissions/);assert.match(weekly,/revenue_missions_refreshed/);
+  for(const table of ['revenue_missions','revenue_mission_opportunities','revenue_mission_events'])assert.match(status,new RegExp(table));
 });
