@@ -14,7 +14,7 @@ function reviewToken(tenantId,rows,type){const secret=reviewSecret();if(!secret)
 function safeEqual(a,b){const aa=Buffer.from(String(a)),bb=Buffer.from(String(b));return aa.length===bb.length&&timingSafeEqual(aa,bb)}
 
 export function normalizeCatalogRow(r={},index=0,type='excel'){
-  const brand=text(r.brand||r.Brand),productName=text(r.product_name||r.Product||r['Product Name']),sku=text(r.sku||r.SKU||r['Model Number']);
+  const brand=text(r.brand||r.Brand),productName=text(r.product_name||r.Product||r['Product Name']),sku=text(r.sku||r.SKU||r.model_number||r['Model Number']);
   const errors=[];
   if(!brand)errors.push('Brand is required');if(!productName)errors.push('Product Name is required');if(!sku)errors.push('SKU is required');
   const msrp=num(r.msrp||r.MSRP),map=num(r.map||r.MAP),wholesale=num(r.wholesale||r.Wholesale);

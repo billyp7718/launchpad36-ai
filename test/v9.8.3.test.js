@@ -382,6 +382,14 @@ test('demo and file rows pass the same catalog validator',()=>{
   assert.equal(invalid.valid_rows.length,0);assert.match(invalid.errors[0].error,/Product Name/);
 });
 
+test('website catalog review accepts a source-backed model number when no separate SKU is published',async()=>{
+  const extracted={brand:'Vendor Audio',product_name:'Reference One',sku:'',model_number:'REF-ONE',category:'Speakers',product_url:'https://vendor.example/products/reference-one',source_url:'https://vendor.example/products/reference-one'};
+  const result=validateCatalogRows([extracted],'website_discovery');
+  assert.equal(result.errors.length,0);assert.equal(result.valid_rows.length,1);assert.equal(result.valid_rows[0].sku,'REF-ONE');assert.equal(result.valid_rows[0].model_number,'REF-ONE');assert.equal(result.valid_rows[0].source_url,extracted.source_url);
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(ui,/extracted row\(s\) need correction/);assert.match(ui,/error\.error\|\|'Invalid catalog data'/);
+});
+
 test('commercial evidence validation never auto-verifies weak or unattributed observations',()=>{
   const weak=validateCommercialObservation({subject_key:'retailer:sku',source_url:'https://retailer.example/p',payload:{price:99},confidence:55,verification_status:'VERIFIED',evidence_type:'assortment_product'});
   assert.equal(weak.verification_status,'REVIEW_REQUIRED');
