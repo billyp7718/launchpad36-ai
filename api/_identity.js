@@ -11,6 +11,8 @@ export function verifyPassword(password='',encoded=''){try{const [type,salt,expe
 export async function ensureIdentitySchema(sql=db()){
  if(schemaReady)return schemaReady;
  schemaReady=(async()=>{
+  return await sql.begin(async sql=>{
+  await sql`select pg_advisory_xact_lock(hashtextextended('launchpad36_identity_schema',0))`;
   await sql`create table if not exists manufacturer_teams(
     id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
     name text not null, description text default '', active boolean not null default true,
@@ -65,6 +67,7 @@ export async function ensureIdentitySchema(sql=db()){
   await sql`create table if not exists crm_connections(id uuid primary key default gen_random_uuid(),manufacturer_id uuid not null references manufacturers(id) on delete cascade,provider text not null,encrypted_token text not null default '',settings jsonb not null default '{}'::jsonb,active boolean not null default true,created_by uuid references manufacturer_members(id) on delete set null,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),unique(manufacturer_id,provider))`;
   await sql`create table if not exists crm_sync_mappings(id bigserial primary key,manufacturer_id uuid not null references manufacturers(id) on delete cascade,provider text not null,opportunity_id uuid not null references opportunity_workspaces(id) on delete cascade,external_company_id text default '',external_contact_id text default '',external_deal_id text default '',last_synced_at timestamptz,last_status text default '',last_error text default '',unique(manufacturer_id,provider,opportunity_id))`;
   await sql`create index if not exists crm_sync_mapping_idx on crm_sync_mappings(manufacturer_id,provider,last_synced_at desc)`;
+  });
  })().catch(e=>{schemaReady=null;throw e});
  return schemaReady;
 }

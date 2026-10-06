@@ -66,6 +66,13 @@ test('role controls persist canonical roles instead of visually reverting to vie
   assert.match(ui,/d\.permissions\?\.role/);
 });
 
+test('identity schema initialization serializes concurrent serverless migrations and UI data loads fail independently',async()=>{
+  const [identity,ui]=await Promise.all([readFile(new URL('../api/_identity.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  assert.match(identity,/sql\.begin\(async sql=>/);assert.match(identity,/pg_advisory_xact_lock\(hashtextextended\('launchpad36_identity_schema',0\)\)/);
+  assert.match(ui,/Promise\.allSettled\(\[api\('\/api\/portfolio'\),api\('\/api\/account-universe\?limit=500'\),api\('\/api\/opportunities'\)\]\)/);
+  assert.match(ui,/portfolioResult\.status==='fulfilled'/);assert.match(ui,/universeResult\.status==='fulfilled'/);assert.match(ui,/Products:/);assert.match(ui,/Accounts:/);
+});
+
 test('workspace administration opens the existing application modal',async()=>{
   const ui=await readFile(new URL('../multi-user-ui.js',import.meta.url),'utf8');
   assert.match(ui,/getElementById\('modalCard'\)/);
