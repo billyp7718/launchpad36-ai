@@ -1,5 +1,6 @@
 import { db } from './_db.js';
 import { resolveTenant,canSeeAllTenantData } from './_tenant.js';
+import { refreshRevenueMissionsForOpportunities } from './_revenue-missions.js';
 
 const clean=(value,max=300)=>String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 const STATUSES=new Set(['modeled','research_required','ready','approved','archived']);
@@ -128,12 +129,13 @@ export default async function handler(req,res){
     if(req.body?.assigned_buyer_ids!==undefined||req.body?.assigned_buyer_id!==undefined){
       const requestedIds=req.body?.assigned_buyer_ids!==undefined?req.body.assigned_buyer_ids:[req.body.assigned_buyer_id],buyerIds=[...new Set((Array.isArray(requestedIds)?requestedIds:[]).map(String).map(value=>value.trim()).filter(Boolean))];
       if(buyerIds.length>50)throw Object.assign(new Error('No more than 50 buyers can be assigned to one opportunity'),{status:400});
-      const assignedBuyers=buyerIds.length?await sql`select b.id,b.name,b.title,b.email,b.phone,b.linkedin,b.category,b.department,b.category_scope,b.buyer_role,b.identity_confidence,b.category_confidence,b.verification_status,b.category_verification_status,b.source_url,b.category_evidence_url from buyers b join accounts a on a.id=b.account_id where b.id=any(${buyerIds}::uuid[]) and a.organization_id=${existing.organization_id}`:[];
+      const assignedBuyers=buyerIds.length?await sql`select b.id,b.name,b.title,b.email,b.phone,b.linkedin,b.category,b.department,b.category_scope,b.subcategory_scope,b.buyer_role,b.confidence,b.identity_confidence,b.category_confidence,b.verification_status,b.category_verification_status,b.source_url,b.category_evidence_url,b.category_last_verified from buyers b join accounts a on a.id=b.account_id where b.id=any(${buyerIds}::uuid[]) and a.organization_id=${existing.organization_id}`:[];
       if(assignedBuyers.length!==buyerIds.length)throw Object.assign(new Error('One or more selected buyers do not belong to this opportunity account'),{status:400});
       const byId=new Map(assignedBuyers.map(buyer=>[String(buyer.id),buyer])),ordered=buyerIds.map(id=>byId.get(id));
       scenario={...scenario,assigned_buyers:ordered,assigned_buyer:ordered[0]||null,buyer_assigned_at:new Date().toISOString()};
     }
     const row=(await sql`update opportunity_workspaces set status=${requested},priority=${clean(req.body?.priority||existing.priority,30)},owner=${clean(req.body?.owner??existing.owner,160)},next_action=${clean(req.body?.next_action??existing.next_action,500)},scenario=${sql.json(scenario)},approved_at=${requested==='approved'?new Date().toISOString():existing.approved_at},updated_at=now() where id=${id} and manufacturer_id=${tenant.tenant_id} returning *`)[0];
+    try{await refreshRevenueMissionsForOpportunities(sql,{manufacturerId:tenant.tenant_id,opportunityIds:[row.id],actorUserId:tenant.user_id})}catch(error){if(!['42P01','42703'].includes(error?.code))throw error}
     return res.status(200).json({opportunity:row});
   }catch(e){console.error('opportunity workspace failed',{message:e?.message||String(e)});return res.status(e?.status||500).json({error:e?.status?e.message:'Opportunity workspace could not be completed'});}
 }
