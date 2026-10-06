@@ -8,10 +8,37 @@ create table if not exists manufacturer_members (
  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create unique index if not exists manufacturer_members_email_lower_uq on manufacturer_members(manufacturer_id,lower(email));
+update manufacturer_members set role='admin' where lower(role)='owner';
+update manufacturer_members set role='member' where lower(role) not in('admin','manager','member','viewer');
+update manufacturer_members set role='admin',updated_at=now() where lower(email) in('wtpantaleo@gmail.com','billp@launchpad36.com') and lower(role)<>'admin';
+
+create table if not exists manufacturer_teams(
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ name text not null, description text default '', active boolean not null default true,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create unique index if not exists manufacturer_teams_name_uq on manufacturer_teams(manufacturer_id,lower(name));
+
+create table if not exists permission_audit_events(
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete restrict,
+ actor_user_id uuid references manufacturer_members(id) on delete restrict, actor_name text not null default '', actor_role text not null default '',
+ action_type text not null, target_user_id uuid references manufacturer_members(id) on delete restrict, target_user_name text not null default '',
+ target_team_id uuid references manufacturer_teams(id) on delete restrict, target_team_name text not null default '',
+ previous_value jsonb not null default '{}'::jsonb, new_value jsonb not null default '{}'::jsonb,
+ result text not null check(result in('SUCCESS','DENIED','FAILED')), reason text not null default '', request_id text not null default '',
+ created_at timestamptz not null default now()
+);
+create index if not exists permission_audit_tenant_time_idx on permission_audit_events(manufacturer_id,created_at desc);
+create index if not exists permission_audit_actor_idx on permission_audit_events(manufacturer_id,actor_user_id,created_at desc);
+create index if not exists permission_audit_target_idx on permission_audit_events(manufacturer_id,target_user_id,target_team_id,created_at desc);
 
 alter table brands add column if not exists logo_url text default '';
 alter table brands add column if not exists description text default '';
 alter table brands add column if not exists updated_at timestamptz not null default now();
+alter table brands add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null;
+alter table brands add column if not exists team_id uuid references manufacturer_teams(id) on delete set null;
+alter table brands add column if not exists visibility text not null default 'tenant';
+create index if not exists brands_scope_idx on brands(manufacturer_id,visibility,team_id,owner_user_id);
 
 alter table products add column if not exists product_family text default '';
 alter table products add column if not exists description text default '';
@@ -229,6 +256,25 @@ create table if not exists market_opportunity_scenarios (
  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create index if not exists market_opportunity_scenarios_tenant_idx on market_opportunity_scenarios(manufacturer_id,updated_at desc);
+alter table market_opportunity_scenarios add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null;
+alter table market_opportunity_scenarios add column if not exists team_id uuid references manufacturer_teams(id) on delete set null;
+alter table market_opportunity_scenarios add column if not exists visibility text not null default 'tenant';
+create index if not exists market_opportunity_scenarios_scope_idx on market_opportunity_scenarios(manufacturer_id,visibility,team_id,owner_user_id,updated_at desc);
+
+create table if not exists market_analysis_report_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+  title text not null,
+  brand_name text not null,
+  analysis_date timestamptz not null,
+  filename text not null,
+  content_hash text not null,
+  report_snapshot jsonb not null,
+  email_html text not null,
+  created_at timestamptz not null default now(),
+  unique(manufacturer_id,content_hash)
+);
+create index if not exists market_analysis_report_snapshots_tenant_idx on market_analysis_report_snapshots(manufacturer_id,created_at desc);
 
 create table if not exists opportunity_workspaces (
  id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
@@ -239,6 +285,28 @@ create table if not exists opportunity_workspaces (
  unique(manufacturer_id,organization_id,route_to_market,product_set_key)
 );
 create index if not exists opportunity_workspaces_tenant_idx on opportunity_workspaces(manufacturer_id,status,updated_at desc);
+alter table opportunity_workspaces add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null;
+alter table opportunity_workspaces add column if not exists team_id uuid references manufacturer_teams(id) on delete set null;
+alter table opportunity_workspaces add column if not exists visibility text not null default 'tenant';
+create index if not exists opportunity_workspaces_scope_idx on opportunity_workspaces(manufacturer_id,visibility,team_id,owner_user_id,updated_at desc);
+
+create table if not exists sell_in_scenarios (
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ opportunity_workspace_id uuid not null references opportunity_workspaces(id) on delete cascade,
+ organization_id uuid not null references retail_organizations(id) on delete cascade,
+ name text not null, scenario_type text not null default 'custom', deployment_type text not null default 'pilot',
+ selected_skus jsonb not null default '[]'::jsonb, assumptions jsonb not null default '{}'::jsonb,
+ calculated_snapshot jsonb not null default '{}'::jsonb, confidence integer not null default 0,
+ notes text not null default '', launch_date date,
+ owner_user_id uuid references manufacturer_members(id) on delete set null,
+ team_id uuid references manufacturer_teams(id) on delete set null,
+ visibility text not null default 'private', created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+alter table sell_in_scenarios add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null;
+alter table sell_in_scenarios add column if not exists team_id uuid references manufacturer_teams(id) on delete set null;
+alter table sell_in_scenarios add column if not exists visibility text not null default 'private';
+create unique index if not exists sell_in_scenarios_name_uidx on sell_in_scenarios(manufacturer_id,opportunity_workspace_id,lower(name));
+create index if not exists sell_in_scenarios_scope_idx on sell_in_scenarios(manufacturer_id,opportunity_workspace_id,visibility,team_id,owner_user_id,updated_at desc);
 
 create or replace function prevent_l36_immutable_mutation() returns trigger language plpgsql as $$
 begin raise exception '% is immutable; append a new record instead',tg_table_name; end $$;
@@ -248,5 +316,7 @@ drop trigger if exists intelligence_change_events_immutable on intelligence_chan
 create trigger intelligence_change_events_immutable before update or delete on intelligence_change_events for each row execute function prevent_l36_immutable_mutation();
 drop trigger if exists buyer_category_relationships_immutable on buyer_category_relationships;
 create trigger buyer_category_relationships_immutable before update or delete on buyer_category_relationships for each row execute function prevent_l36_immutable_mutation();
+drop trigger if exists permission_audit_events_immutable on permission_audit_events;
+create trigger permission_audit_events_immutable before update or delete on permission_audit_events for each row execute function prevent_l36_immutable_mutation();
 `;
 export default async function handler(req,res){if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});if(!requireAdmin(req,res))return;try{const sql=db();await sql.unsafe(SQL);return res.status(200).json({initialized:true,version:'9.8.3',architecture:'multi_tenant_living_retail_intelligence'})}catch(e){return res.status(500).json({error:e.message})}}

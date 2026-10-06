@@ -1,5 +1,5 @@
 import { db } from './_db.js';
-import { requireInternal } from './_auth.js';
+import { resolveInternalTenant } from './_tenant.js';
 
 const REQUIRED_TABLES = [
   'manufacturers',
@@ -11,8 +11,21 @@ const REQUIRED_TABLES = [
   'intelligence_change_event_processing',
   'monitor_targets',
   'opportunity_workspaces',
+  'sell_in_scenarios',
   'market_opportunity_scenarios',
-  'refresh_runs'
+  'market_analysis_report_snapshots',
+  'refresh_runs',
+  'entity_field_observations',
+  'current_entity_field_values',
+  'canonical_products',
+  'canonical_product_identifiers',
+  'retailer_product_listings',
+  'retailer_listing_observations',
+  'product_identity_matches',
+  'l36_trust_evaluations',
+  'revenue_missions',
+  'revenue_mission_opportunities',
+  'revenue_mission_events'
 ];
 
 function component(name, status, detail, extra = {}) {
@@ -28,7 +41,7 @@ async function count(sql, table) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-  if (!requireInternal(req, res)) return;
+  if (!await resolveInternalTenant(req, res)) return;
 
   const components = [];
   const version = process.env.npm_package_version || '9.8.3';

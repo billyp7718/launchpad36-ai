@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { db } from './_db.js';
-import { resolveTenant } from './_tenant.js';
+import { resolveTenant,canSeeAllTenantData } from './_tenant.js';
+import { accessibleBrand } from './brands.js';
 
 function text(v){return String(v??'').trim()}
 function num(v){const n=Number(String(v??'').replace(/[$,]/g,''));return Number.isFinite(n)?n:0}
@@ -13,7 +14,7 @@ function reviewToken(tenantId,rows,type){const secret=reviewSecret();if(!secret)
 function safeEqual(a,b){const aa=Buffer.from(String(a)),bb=Buffer.from(String(b));return aa.length===bb.length&&timingSafeEqual(aa,bb)}
 
 export function normalizeCatalogRow(r={},index=0,type='excel'){
-  const brand=text(r.brand||r.Brand),productName=text(r.product_name||r.Product||r['Product Name']),sku=text(r.sku||r.SKU||r['Model Number']);
+  const brand=text(r.brand||r.Brand),productName=text(r.product_name||r.Product||r['Product Name']),sku=text(r.sku||r.SKU||r.model_number||r['Model Number']);
   const errors=[];
   if(!brand)errors.push('Brand is required');if(!productName)errors.push('Product Name is required');if(!sku)errors.push('SKU is required');
   const msrp=num(r.msrp||r.MSRP),map=num(r.map||r.MAP),wholesale=num(r.wholesale||r.Wholesale);
@@ -39,9 +40,13 @@ export default async function handler(req,res){
   const run=(await sql`insert into catalog_import_runs(manufacturer_id,source_type,source_name,rows_seen,status) values(${t.tenant_id},${type},${req.body?.source_name||''},${rows.length},'approved') returning *`)[0];
   try{
     for(const r of review.valid_rows){
-      const brand=(await sql`insert into brands(manufacturer_id,name,website,active,updated_at) values(${t.tenant_id},${r.brand},${r.brand_website},true,now()) on conflict(manufacturer_id,name) do update set active=true,updated_at=now() returning *`)[0];
+      let brand=(await sql`select * from brands where manufacturer_id=${t.tenant_id} and lower(name)=lower(${r.brand}) limit 1`)[0];
+      if(brand&&!await accessibleBrand(sql,brand.id,t))throw Object.assign(new Error('A brand with this name exists outside your private or team scope'),{status:403});
+      if(!brand)brand=(await sql`insert into brands(manufacturer_id,name,website,active,owner_user_id,visibility,updated_at) values(${t.tenant_id},${r.brand},${r.brand_website},true,${t.user_id},'private',now()) returning *`)[0];
+      else await sql`update brands set website=case when ${r.brand_website}<>'' then ${r.brand_website} else website end,active=true,updated_at=now() where id=${brand.id}`;
       let product=(await sql`select * from products where manufacturer_id=${t.tenant_id} and brand_id=${brand.id} and lower(name)=lower(${r.product_name}) limit 1`)[0];
-      if(!product)product=(await sql`insert into products(manufacturer_id,brand_id,name,product_family,category,description,product_url,image_url,positioning,differentiator,source_type,source_url,active,updated_at) values(${t.tenant_id},${brand.id},${r.product_name},${r.product_family},${r.category},${r.description},${r.product_url},${r.image_url},${r.positioning},${r.differentiator},${type},${r.source_url},true,now()) returning *`)[0];
+      if(product&&!canSeeAllTenantData(t)&&String(product.owner_user_id||'')!==String(t.user_id||'')&&!(product.visibility==='team'&&(t.team_ids||[]).includes(String(product.team_id||'')))&&!(product.visibility==='tenant'&&!product.owner_user_id&&!product.team_id))throw Object.assign(new Error('A product with this name exists outside your private or team scope'),{status:403});
+      if(!product)product=(await sql`insert into products(manufacturer_id,brand_id,name,product_family,category,description,product_url,image_url,positioning,differentiator,source_type,source_url,active,owner_user_id,visibility,updated_at) values(${t.tenant_id},${brand.id},${r.product_name},${r.product_family},${r.category},${r.description},${r.product_url},${r.image_url},${r.positioning},${r.differentiator},${type},${r.source_url},true,${t.user_id},'private',now()) returning *`)[0];
       else await sql`update products set product_family=${r.product_family},category=${r.category},description=${r.description},product_url=${r.product_url},image_url=${r.image_url},positioning=${r.positioning},differentiator=${r.differentiator},source_type=${type},source_url=${r.source_url},active=true,updated_at=now() where id=${product.id}`;
       await sql`insert into product_variants(product_id,sku,variant_name,msrp,map,wholesale,upc,model_number,image_url,product_url,attributes,active,updated_at) values(${product.id},${r.sku},${r.variant_name},${r.msrp},${r.map},${r.wholesale},${r.upc},${r.model_number},${r.image_url},${r.product_url},${sql.json({features:r.features,source:'catalog_import',source_type:type,demo_data:r.demo_data})},true,now()) on conflict(product_id,sku,variant_name) do update set msrp=excluded.msrp,map=excluded.map,wholesale=excluded.wholesale,upc=excluded.upc,model_number=excluded.model_number,image_url=excluded.image_url,product_url=excluded.product_url,attributes=excluded.attributes,active=true,updated_at=now()`;
       const cats=[...new Set([r.category,...r.additional_categories].filter(Boolean))];for(const c of cats)await sql`insert into product_categories(product_id,category) values(${product.id},${c}) on conflict do nothing`;
@@ -50,5 +55,5 @@ export default async function handler(req,res){
     }
     await sql`update catalog_import_runs set rows_imported=${imported},rows_rejected=${errors.length},status='complete',errors=${sql.json(errors)},finished_at=now() where id=${run.id}`;
     return res.status(200).json({version:'9.8.3',status:'IMPORTED',source_type:type,demo_data:type==='demo',rows_seen:rows.length,rows_imported:imported,rows_rejected:errors.length,errors:errors.slice(0,50),interpretation:errors.length?'Approved catalog imported with rejected review rows excluded.':'Approved catalog imported successfully.'});
-  }catch(e){console.error('catalog import failed',{message:e?.message||String(e)});await sql`update catalog_import_runs set status='error',errors=${sql.json([{error:'Catalog import failed'}])},finished_at=now() where id=${run.id}`;return res.status(500).json({error:'Catalog import could not be completed'})}
+  }catch(e){console.error('catalog import failed',{message:e?.message||String(e)});await sql`update catalog_import_runs set status='error',errors=${sql.json([{error:'Catalog import failed'}])},finished_at=now() where id=${run.id}`;return res.status(e.status||500).json({error:e.status?e.message:'Catalog import could not be completed'})}
 }

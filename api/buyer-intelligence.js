@@ -1,17 +1,17 @@
 import { db, upsertBuyer } from './_db.js';
-import { requireInternal } from './_auth.js';
 import { persistEvidence } from './_evidence.js';
 import { runLivingIntelligencePipeline } from './_living-intelligence.js';
 import { buyerCategorySearchTerms, searchOpenAIBuyers } from './_openai-research.js';
 import { appendBuyerRelationship, relationshipDisposition } from './_buyer-relationships.js';
 import { resolveTenant } from './_tenant.js';
+import { CAPABILITIES, requireCapability } from './_permissions.js';
 
 const clean=(value,max=300)=>String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 
 export default async function handler(req,res){
   if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
-  if(!requireInternal(req,res))return;
   const tenant=await resolveTenant(req,res,{allowCron:true});if(!tenant)return;
+  if(tenant.source!=='cron'&&!requireCapability(tenant,res,CAPABILITIES.DEEP_SEARCH))return;
   const sql=db(),accountId=clean(req.body?.account_id,80),manufacturerId=tenant.tenant_id||req.body?.manufacturer_id||null;
   if(!accountId)return res.status(400).json({error:'account_id is required'});
   try{

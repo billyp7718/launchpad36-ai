@@ -17,7 +17,6 @@ export default async function handler(req,res){
       '/deep-buyer-search-ui-v3.js',
       '/buyer-category-intelligence-ui.js',
       '/assortment-intelligence-ui.js',
-      '/opportunity-alerts-ui.js',
       '/multi-user-ui.js',
       '/phase2-tenancy-ui.js',
       '/crm-export-ui.js',
@@ -25,6 +24,10 @@ export default async function handler(req,res){
       '/commercial-ui-polish.js',
       '/retail-industry-news-ui.js',
       '/market-opportunity-controls-ui.js',
+      '/market-account-scope-ui.js',
+      '/intelligence-foundation-ui.js',
+      '/sell-in-scenario-ui.js',
+      '/revenue-missions-ui.js',
       '/pitch-deck-ui.js'
     ].map(src=>`<script src="${src}" defer></script>`).join('');
     const marker='</body>';

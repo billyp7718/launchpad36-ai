@@ -1,8 +1,11 @@
 import { db, upsertCompetitiveProduct } from './_db.js';
-import { requireAdmin } from './_auth.js';
+import { resolveTenant } from './_tenant.js';
+import { CAPABILITIES, requireCapability } from './_permissions.js';
 export default async function handler(req,res){
  try{
-  if(!requireAdmin(req,res)) return;
+  const tenant=await resolveTenant(req,res);if(!tenant)return;
+  const capability=req.method==='GET'?CAPABILITIES.APP_READ:CAPABILITIES.APP_WRITE;
+  if(!requireCapability(tenant,res,capability))return;
   if(req.method==='GET'){
     const sql=db(); const account=req.query.account_id||null,organization=req.query.organization_id||null;
     const rows=organization ? await sql`select cp.* from competitive_products cp join accounts a on a.id=cp.account_id where a.organization_id=${organization} and cp.active=true order by cp.updated_at desc,cp.brand`

@@ -1,5 +1,5 @@
-import { requireInternal } from './_auth.js';
 import { resolveTenant } from './_tenant.js';
+import { CAPABILITIES, requireCapability } from './_permissions.js';
 import { enrichBuyerContacts } from './_buyer-contact-waterfall.js';
 
 function origin(req){const proto=req.headers['x-forwarded-proto']||'https',host=req.headers['x-forwarded-host']||req.headers.host;return `${proto}://${host}`}
@@ -20,8 +20,8 @@ async function withContactWaterfall(payload,organization_id,tenant_id){
 }
 
 export default async function handler(req,res){
-  if(!requireInternal(req,res))return;
   const tenant=await resolveTenant(req,res);if(!tenant)return;
+  if(!requireCapability(tenant,res,CAPABILITIES.DEEP_SEARCH))return;
   if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
   const organization_id=String(req.body?.organization_id||'').trim();
   if(!organization_id)return res.status(400).json({error:'organization_id is required'});

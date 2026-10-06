@@ -12,8 +12,8 @@ export default async function handler(req,res){
  try{
   await ensureIdentitySchema(sql);
   const manufacturer=(await sql`select id,name from manufacturers order by created_at asc limit 1`)[0];if(!manufacturer)return res.status(409).json({error:'No workspace exists yet'});
-  const owner=(await sql`insert into manufacturer_members(manufacturer_id,email,display_name,role,active,password_hash,updated_at) values(${manufacturer.id},${email},${displayName},'owner',true,${hashPassword(password)},now()) on conflict(manufacturer_id,lower(email)) do update set display_name=excluded.display_name,role='owner',active=true,password_hash=excluded.password_hash,updated_at=now() returning *`)[0];
-  res.setHeader('set-cookie',createSessionCookie({role:'owner',tenant_id:manufacturer.id,user_id:owner.id,display_name:owner.display_name,email:owner.email}));
-  return res.status(201).json({created:true,user:{id:owner.id,email:owner.email,display_name:owner.display_name,role:'owner'},workspace:{id:manufacturer.id,name:manufacturer.name}});
+  const owner=(await sql`insert into manufacturer_members(manufacturer_id,email,display_name,role,active,password_hash,updated_at) values(${manufacturer.id},${email},${displayName},'admin',true,${hashPassword(password)},now()) on conflict(manufacturer_id,lower(email)) do update set display_name=excluded.display_name,role='admin',active=true,password_hash=excluded.password_hash,updated_at=now() returning *`)[0];
+  res.setHeader('set-cookie',createSessionCookie({role:'admin',tenant_id:manufacturer.id,user_id:owner.id,display_name:owner.display_name,email:owner.email}));
+  return res.status(201).json({created:true,user:{id:owner.id,email:owner.email,display_name:owner.display_name,role:'ADMIN'},workspace:{id:manufacturer.id,name:manufacturer.name}});
  }catch(e){return res.status(e.status||500).json({error:e.message||'Owner setup failed'})}
 }

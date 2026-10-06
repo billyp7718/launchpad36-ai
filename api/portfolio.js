@@ -8,8 +8,8 @@ export default async function handler(req,res){
   const sql=db();
   try{
     await ensureIdentitySchema(sql);
-    const brands=await sql`select * from brands where manufacturer_id=${t.tenant_id} and active=true order by name`;
     const teamIds=t.team_ids||[],admin=canSeeAllTenantData(t);
+    const brands=admin?await sql`select * from brands where manufacturer_id=${t.tenant_id} and active=true order by name`:await sql`select * from brands where manufacturer_id=${t.tenant_id} and active=true and (owner_user_id=${t.user_id} or (visibility='team' and team_id=any(${teamIds}::uuid[])) or (visibility='tenant' and owner_user_id is null and team_id is null)) order by name`;
     const products=admin?await sql`select p.*,b.name brand_name from products p left join brands b on b.id=p.brand_id where p.manufacturer_id=${t.tenant_id} and p.active=true order by b.name,p.name`:await sql`select p.*,b.name brand_name from products p left join brands b on b.id=p.brand_id where p.manufacturer_id=${t.tenant_id} and p.active=true and (p.owner_user_id=${t.user_id} or (p.visibility='team' and p.team_id=any(${teamIds}::uuid[])) or (p.visibility='tenant' and p.owner_user_id is null and p.team_id is null)) order by b.name,p.name`;
     const hydrated=[];
     for(const p of products){
