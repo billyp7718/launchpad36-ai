@@ -799,6 +799,13 @@ test('account scope UI persists scenarios and records inclusion provenance in re
   assert.deepEqual(restored.account_scope,{mode:'recommended_plus_custom',maximum_relevant_accounts:50,custom_account_ids:['custom-1']});assert.equal(snapshot.account_scope.maximum_relevant_accounts,50);assert.equal(snapshot.accounts[0].scope_source,'CUSTOM');assert.equal(snapshot.accounts[0].configured_account_limit,50);
 });
 
+test('custom account search renders only current name or domain matches',async()=>{
+  const ui=await readFile(new URL('../market-account-scope-ui.js',import.meta.url),'utf8'),elements={moCustomAccountSearch:{value:'beta.example'},moCustomAccountResults:{style:{},innerHTML:''},moSelectedAccounts:{innerHTML:''},moAccountScopeMode:{value:'custom_only'}},requests=[];
+  const context=createContext({state:{marketOpportunity:null,orgs:[{id:'alpha',name:'Alpha Retail',domain:'alpha.example'}]},window:null,document:{body:{},getElementById:id=>elements[id]||null,querySelectorAll:()=>[]},MutationObserver:class{observe(){}},market:()=>'<p class="muted">Catalog wholesale price is used when available.',marketFormPayload:()=>({}),renderMarketResults:()=>'',marketReportSnapshotPayload:()=>({accounts:[]}),api:async url=>{requests.push(url);return {organizations:[{id:'beta',name:'Beta Stores',domain:'beta.example'}]}},encodeURIComponent,clearTimeout,setTimeout:()=>0,Symbol,Set,Map,String,Number,Boolean,Array});context.window=context;runInContext(ui,context);
+  await context.l36SearchCustomAccounts();
+  assert.match(requests[0],/q=beta\.example/);assert.match(elements.moCustomAccountResults.innerHTML,/Beta Stores/);assert.doesNotMatch(elements.moCustomAccountResults.innerHTML,/Alpha Retail/);
+});
+
 test('market intelligence UI supports multiple products, channel models and SKU drill-down',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/class="moProduct" type="checkbox"/);assert.match(source,/class="moRoute" type="checkbox"/);assert.match(source,/routes_to_market/);assert.match(source,/Select All/);
