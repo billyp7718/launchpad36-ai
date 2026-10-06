@@ -13,7 +13,15 @@ const REQUIRED_TABLES = [
   'opportunity_workspaces',
   'market_opportunity_scenarios',
   'market_analysis_report_snapshots',
-  'refresh_runs'
+  'refresh_runs',
+  'entity_field_observations',
+  'current_entity_field_values',
+  'canonical_products',
+  'canonical_product_identifiers',
+  'retailer_product_listings',
+  'retailer_listing_observations',
+  'product_identity_matches',
+  'l36_trust_evaluations'
 ];
 
 function component(name, status, detail, extra = {}) {

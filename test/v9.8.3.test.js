@@ -25,6 +25,10 @@ import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, req
 import { canSeeAllTenantData } from '../api/_tenant.js';
 import { isPermanentAdminEmail, PERMANENT_ADMIN_EMAILS } from '../api/_identity.js';
 import { safeAuditValue } from '../api/_permission-audit.js';
+import { calculateTrustScore, trustLevel } from '../api/_trust-score.js';
+import { evaluateProductIdentityMatch, normalizeIdentifier } from '../api/_product-identity.js';
+import { evidencePresentation, shouldPromoteObservation } from '../api/_field-evidence.js';
+import { INTELLIGENCE_FOUNDATION_SQL } from '../api/db-init-intelligence-foundation.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -1096,4 +1100,41 @@ test('brands and complete market scenarios can be edited and saved',async()=>{
 test('saved comparable product context is returned with account offerings',async()=>{
   const [research,productsApi,ui]=await Promise.all([readFile(new URL('../api/account-research.js',import.meta.url),'utf8'),readFile(new URL('../api/competitive-products.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
   assert.match(research,/comparison_product_ids:comparisonProductIds/);assert.match(productsApi,/comparison_product_ids/);assert.match(ui,/saved portfolio-comparison link/);
+});
+
+test('intelligence foundation migration is additive, idempotent and append-only',()=>{
+  for(const table of ['entity_field_observations','current_entity_field_values','canonical_products','canonical_product_identifiers','retailer_product_listings','retailer_listing_observations','product_identity_matches','l36_trust_evaluations'])assert.match(INTELLIGENCE_FOUNDATION_SQL,new RegExp(`create table if not exists ${table}`));
+  assert.doesNotMatch(INTELLIGENCE_FOUNDATION_SQL,/drop\s+(table|column)|truncate|delete\s+from/i);
+  assert.match(INTELLIGENCE_FOUNDATION_SQL,/entity_field_observations_immutable/);assert.match(INTELLIGENCE_FOUNDATION_SQL,/retailer_listing_observations_immutable/);assert.match(INTELLIGENCE_FOUNDATION_SQL,/product_identity_matches_immutable/);assert.match(INTELLIGENCE_FOUNDATION_SQL,/l36_trust_evaluations_immutable/);
+  assert.match(INTELLIGENCE_FOUNDATION_SQL,/manufacturer_sku/);assert.match(INTELLIGENCE_FOUNDATION_SQL,/\bgtin\b/);assert.match(INTELLIGENCE_FOUNDATION_SQL,/\bean\b/);assert.match(INTELLIGENCE_FOUNDATION_SQL,/\bmpn\b/);
+});
+
+test('field evidence preserves verified truth and exposes explicit presentation states',()=>{
+  const verified={verification_status:'VERIFIED',confidence:82};
+  assert.equal(shouldPromoteObservation(verified,{verification_status:'MODELED',confidence:100,user_verified:false}),false);
+  assert.equal(shouldPromoteObservation(verified,{verification_status:'VERIFIED',confidence:90,user_verified:false}),true);
+  assert.deepEqual(evidencePresentation('USER_ENTERED'),{status:'USER_ENTERED',label:'USER ENTERED',kind:'user'});
+  assert.equal(evidencePresentation('STALE').kind,'stale');
+});
+
+test('L36 Trust Score is explainable and penalizes conflicts and unsupported claims',()=>{
+  const now=new Date().toISOString(),strong=calculateTrustScore({observations:[{value:'Home Audio',source_kind:'official_retailer',observed_at:now},{value:'Home Audio',source_kind:'trade_publication',observed_at:now}],product_match_confidence:96,account_match_confidence:94,buyer_role_confidence:92,category_ownership_confidence:91,in_store_evidence_strength:95,revenue_assumption_completeness:94});
+  assert.ok(strong.trust_score>=90);assert.equal(strong.trust_level,'VERIFIED_HIGH_CONFIDENCE');assert.ok(strong.reasons.length);assert.equal(strong.algorithm_version,'l36-trust-v1');
+  const weak=calculateTrustScore({source_authority:40,evidence_freshness:20,source_agreement:20,conflicts:['Employer conflict'],unsupported_claims:['Unattributed revenue claim']});assert.ok(weak.trust_score<50);assert.equal(trustLevel(weak.trust_score),'INSUFFICIENT_EVIDENCE');assert.ok(weak.recommended_verification.length);
+});
+
+test('canonical product matching prefers exact identifiers and never auto-links similar names alone',()=>{
+  assert.equal(normalizeIdentifier('GTIN','00-123 456'),'00123456');
+  const exact=evaluateProductIdentityMatch({name:'Reference Speaker',brand_name:'Aurelius',identifiers:{GTIN:'00123456789012'}},{product_name:'Reference Speaker Black',brand_name:'Aurelius',identifiers:{GTIN:'00123456789012'}});assert.equal(exact.product_match_confidence,99);assert.equal(exact.auto_link_allowed,true);
+  const similar=evaluateProductIdentityMatch({name:'Reference Bookshelf Speaker',brand_name:'Aurelius',category:'Audio'},{product_name:'Reference Bookshelf Speakers',brand_name:'Aurelius',category:'Audio'});assert.equal(similar.auto_link_allowed,false);assert.ok(similar.product_match_confidence<75);
+  const conflict=evaluateProductIdentityMatch({brand_name:'Aurelius',identifiers:{UPC:'111111111111'}},{brand_name:'Aurelius',identifiers:{UPC:'222222222222'}});assert.equal(conflict.auto_link_allowed,false);assert.ok(conflict.conflicts.length);
+});
+
+test('intelligence foundation APIs enforce tenant scope and avoid client-side provider credentials',async()=>{
+  const [fieldApi,trustApi,identityApi,status,ui]=await Promise.all([readFile(new URL('../api/field-evidence.js',import.meta.url),'utf8'),readFile(new URL('../api/trust-score.js',import.meta.url),'utf8'),readFile(new URL('../api/product-identity.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  for(const source of [fieldApi,trustApi,identityApi])assert.match(source,/resolveTenant\(req,res\)/);
+  assert.match(fieldApi,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(trustApi,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(identityApi,/manufacturer_id=\$\{tenant\.tenant_id\}/);
+  assert.doesNotMatch(`${fieldApi}${trustApi}${identityApi}`,/OPENAI_API_KEY|FIRECRAWL_API_KEY|APOLLO_API_KEY/);
+  for(const table of ['entity_field_observations','canonical_products','retailer_product_listings','l36_trust_evaluations'])assert.match(status,new RegExp(table));
+  assert.match(ui,/db-init-intelligence-foundation/);
 });
