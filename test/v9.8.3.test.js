@@ -1022,6 +1022,14 @@ test('account assortment comparison adds and removes exact SKUs and saves member
   assert.match(apiSource,/where p\.manufacturer_id=\$\{tenant\.tenant_id\}/);
 });
 
+test('product research screen edits the selected account analysis assortment',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  for(const marker of ['Proposed SKUs for this analysis','researchAssortmentEditor','researchAssortmentWorkspace','addResearchAssortmentSku','removeResearchAssortmentSku','saveResearchAssortment','Save Proposed SKUs','openAccountResearchWithoutAssortmentEditor'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/state\.selectedResearchWorkspaceId=String\(id\)/);
+  assert.match(ui,/proposed_assortment:researchAssortmentDrafts\[w\.id\]\|\|\[\]/);
+  assert.match(ui,/Research evidence remains separate and is not changed by these manual selections/);
+});
+
 test('account assortment volume uses editable SKU prices to calculate annual revenue',async()=>{
   const [ui,apiSource]=await Promise.all([
     readFile(new URL('../index.html',import.meta.url),'utf8'),
