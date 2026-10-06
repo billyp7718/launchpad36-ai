@@ -189,6 +189,15 @@ test('tenant-private portfolio and account analyses are team scoped while public
   assert.doesNotMatch(migration,/drop\s+(column|table)|truncate|delete\s+from\s+(brands|products|manufacturer_members|tenant_account_overlays)/i);
 });
 
+test('brand sharing loads every active tenant team for Admin and refreshes the modal dropdown',async()=>{
+  const [session,ui,brands]=await Promise.all([readFile(new URL('../api/auth-session.js',import.meta.url),'utf8'),readFile(new URL('../phase2-tenancy-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/brands.js',import.meta.url),'utf8')]);
+  assert.match(session,/permissions\.can_administer_tenant_users/);assert.match(session,/manufacturer_id=\$\{member\.manufacturer_id\} and active=true/);assert.match(session,/:await memberTeams\(member\.id,sql\)/);
+  for(const marker of ['refreshTeamSelect','/api/auth-session','brTeam'])assert.match(ui,new RegExp(marker));
+  assert.ok(ui.includes('teamOptions(brand.team_id)'));
+  assert.ok(ui.includes("refreshTeamSelect('brTeam'"));
+  assert.match(brands,/manufacturer_id=\$\{tenant\.tenant_id\} and active=true/);assert.match(brands,/Team is not part of this workspace/);
+});
+
 test('restricted direct API capability checks fail with 403',()=>{
   const denied=[];const response={status(code){denied.push(code);return this},json(payload){denied.push(payload);return this}};
   assert.equal(requireCapability({role:ROLES.MEMBER},response,CAPABILITIES.DEEP_MARKET_ANALYSIS),false);
