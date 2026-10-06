@@ -29,6 +29,7 @@ import { calculateTrustScore, trustLevel } from '../api/_trust-score.js';
 import { evaluateProductIdentityMatch, normalizeIdentifier } from '../api/_product-identity.js';
 import { evidencePresentation, shouldPromoteObservation } from '../api/_field-evidence.js';
 import { INTELLIGENCE_FOUNDATION_SQL } from '../api/db-init-intelligence-foundation.js';
+import { buildAccountIntelligenceSummary, inStoreCoverage, selectCategoryOwner } from '../api/_account-intelligence-summary.js';
 import { REVENUE_MISSION_SQL } from '../api/db-init-revenue-missions.js';
 import { calculateMissionMetrics, evaluateMissionOpportunity, missionNextActions, normalizePipelineStage } from '../api/_revenue-missions.js';
 
@@ -1177,6 +1178,31 @@ test('intelligence foundation APIs enforce tenant scope and avoid client-side pr
   assert.doesNotMatch(`${fieldApi}${trustApi}${identityApi}`,/OPENAI_API_KEY|FIRECRAWL_API_KEY|APOLLO_API_KEY/);
   for(const table of ['entity_field_observations','canonical_products','retailer_product_listings','l36_trust_evaluations'])assert.match(status,new RegExp(table));
   assert.match(ui,/db-init-intelligence-foundation/);
+});
+
+test('Account Intelligence Summary answers the four commercial questions from attributable data',()=>{
+  const now=new Date().toISOString(),summary=buildAccountIntelligenceSummary({organization:{id:'org-1',name:'Example Retailer',last_verified:now},target:{fit_score:88,whitespace_score:76},workspaces:[{id:'workspace-1',status:'ready',next_action:'Build a 50-store pilot proposal',updated_at:now,scenario:{account:{fit_score:92,fit_reason:'Audio category and channel profile align',base_manufacturer_revenue:875000,evidence_status:'VERIFIED'},proposed_assortment:[{product_id:'p1',product_name:'Reference Speaker',brand_name:'Demo Audio',sku:'DA-100',dealer_cost:200,monthly_sales_volume:10,annual_revenue:240000}]}}],buyers:[{name:'Jordan Merchant',title:'Audio Category Manager',department:'Consumer Electronics',category_scope:'Audio and Home Theater',buyer_role:'CATEGORY_OWNER',identity_confidence:94,category_confidence:91,employment_verification_status:'VERIFIED',category_verification_status:'VERIFIED',employment_evidence_url:'https://retailer.example/team',category_evidence_url:'https://retailer.example/audio-team',category_last_verified:now}],evidence:[{payload:{offerings:[{name:'Soundbar','store_verification':'CONFIRMED_AT_LOCATION'}]},source_url:'https://retailer.example/audio',source_kind:'official_retailer',publisher:'Example Retailer',observed_at:now,last_verified_at:now,verification_status:'VERIFIED',evidence_type:'retailer_assortment'}]});
+  assert.equal(summary.opportunity.value,875000);assert.equal(summary.opportunity.status,'MODELED');assert.equal(summary.fit.score,92);assert.equal(summary.assortment_gap.label,'High');assert.equal(summary.buyer.ownership_confirmed,true);assert.equal(summary.in_store_coverage.status,'VERIFIED');assert.equal(summary.products.length,1);assert.equal(summary.next_best_action.approval_required,true);assert.ok(summary.trust_score>0);assert.ok(summary.sources.length>=2);
+});
+
+test('Account Intelligence Summary fails closed when category, assortment or opportunity support is missing',()=>{
+  const buyer=selectCategoryOwner([{name:'Generic Buyer',title:'Senior Buyer',identity_confidence:90,category_confidence:95,employment_verification_status:'VERIFIED',category_verification_status:'UNCONFIRMED',category_scope:'Audio'}]);assert.equal(buyer.identified,true);assert.equal(buyer.ownership_confirmed,false);assert.equal(buyer.category_confidence,0);assert.equal(buyer.category_scope,'Unconfirmed');assert.equal(buyer.category_status,'UNCONFIRMED');
+  assert.equal(selectCategoryOwner([{name:'Former Category Owner',identity_confidence:90,category_confidence:95,employment_verification_status:'UNCONFIRMED',category_verification_status:'VERIFIED',category_scope:'Audio'}]).ownership_confirmed,false);
+  assert.deepEqual(inStoreCoverage([{payload:{offerings:[{availability:'Available online'}]},verification_status:'REVIEW_REQUIRED'}]).label,'Online Only / Store Unknown');
+  const summary=buildAccountIntelligenceSummary({organization:{id:'org-2',name:'Unknown Account'},buyers:[{name:'Generic Buyer',title:'Senior Buyer',identity_confidence:90,category_confidence:95,employment_verification_status:'VERIFIED',category_verification_status:'UNCONFIRMED',category_scope:'Audio'}]});assert.equal(summary.opportunity.status,'NEEDS_RESEARCH');assert.equal(summary.assortment_gap.label,'Unconfirmed');assert.equal(summary.in_store_coverage.label,'Unconfirmed');assert.equal(summary.next_best_action.action,'Run Find Me Revenue for this account');assert.equal(summary.last_verified_at,null);
+});
+
+test('Account Intelligence Summary combines multiple brand workspaces without duplicating SKUs',()=>{
+  const workspace=(id,items)=>({id,scenario:{account:{base_manufacturer_revenue:999999,fit_score:80},proposed_assortment:items}}),shared={product_id:'p1',product_name:'Speaker',brand_name:'Brand A',sku:'SP-1',dealer_cost:100,monthly_sales_volume:2,annual_revenue:2400},summary=buildAccountIntelligenceSummary({organization:{id:'org-3',name:'Multi Brand Account'},workspaces:[workspace('one',[shared]),workspace('two',[{...shared,annual_revenue:1800},{product_id:'p2',product_name:'Soundbar',brand_name:'Brand B',sku:'SB-2',dealer_cost:200,monthly_sales_volume:3,annual_revenue:7200}])]});
+  assert.equal(summary.workspace_count,2);assert.equal(summary.products.length,2);assert.equal(summary.opportunity.value,9600);assert.equal(summary.important_distinctions.opportunity,'MODELED');
+});
+
+test('Account Intelligence Summary API keeps tenant-private workspaces scoped server-side',async()=>{
+  const source=await readFile(new URL('../api/account-intelligence-summary.js',import.meta.url),'utf8');assert.match(source,/resolveTenant\(req,res\)/);assert.match(source,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(source,/owner_user_id=\$\{tenant\.user_id\}/);assert.match(source,/visibility='team'/);assert.match(source,/team_id=any/);assert.match(source,/visibility='tenant'/);assert.match(source,/commercial_evidence/);assert.match(source,/organization_id=\$\{organizationId\}/);assert.doesNotMatch(source,/OPENAI_API_KEY|FIRECRAWL_API_KEY|APOLLO_API_KEY/);
+});
+
+test('Account 360 renders a progressive-disclosure Intelligence Summary without relabeling models as facts',async()=>{
+  const ui=await readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8');for(const marker of ['ACCOUNT INTELLIGENCE SUMMARY','What can I sell here?','Why should this retailer buy it?','Who owns the decision?','What should I do next?','Opportunity','Assortment Gap','Buyer Identified','In-Store Coverage','Last Verified','L36 Trust Score','Next Best Action','details','Attributable sources','Modeled manufacturer revenue','Unconfirmed'])assert.match(ui,new RegExp(marker,'i'));assert.match(ui,/api\/account-intelligence-summary\?organization_id=/);assert.match(ui,/accountIntelligenceSummaryHtml/);assert.match(ui,/Human approval required/);assert.doesNotMatch(ui,/verified retailer revenue/i);
 });
 
 test('Revenue Mission migration is additive, idempotent and preserves immutable history',()=>{
