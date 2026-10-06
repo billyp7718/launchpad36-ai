@@ -1009,8 +1009,16 @@ test('opportunity details support editable proposed assortments and account comp
   assert.match(apiSource,/proposed_assortment/);assert.match(apiSource,/assortment_updated_at/);assert.match(apiSource,/manufacturer_id=\$\{tenant\.tenant_id\}/);
   assert.match(apiSource,/from commercial_evidence ce join evidence_sources es/);assert.match(apiSource,/from competitive_products cp join accounts a/);
   assert.match(apiSource,/competitive_offerings/);assert.match(apiSource,/b\.email/);assert.match(apiSource,/b\.phone/);assert.match(apiSource,/b\.linkedin/);
-  for(const marker of ['Opportunity Buyer','Assign Buyer','saveOpportunityBuyer','Research All Buyers'])assert.match(ui,new RegExp(marker));
-  assert.match(apiSource,/assigned_buyer_id/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+  for(const marker of ['Opportunity Buyers','Save Buyers','saveOpportunityBuyers','Research All Buyers'])assert.match(ui,new RegExp(marker));
+  assert.match(apiSource,/assigned_buyer_ids/);assert.match(apiSource,/assigned_buyers/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+});
+
+test('account opportunity model consolidates account tabs, SKUs and buyers into an executive PDF',async()=>{
+  const [ui,apiSource,pdfSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/_market-report.js',import.meta.url),'utf8')]);
+  for(const marker of ['Combine products from this account','accountTabAssortment','mergeOpportunityTabAssortments','Download Executive Brief','downloadAccountOpportunityBrief','consolidatedOpportunityPlan','market-report-snapshots','market-report-pdf'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/new Set\(current\.map\(item=>skuComparisonKey\(item\)\)\)/);
+  assert.match(ui,/assigned_buyer_ids/);assert.match(apiSource,/assignedBuyers\.length!==buyerIds\.length/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+  assert.match(pdfSource,/Executive Takeaways/);assert.match(pdfSource,/recommended_actions/);assert.match(pdfSource,/modeled estimates/);
 });
 
 test('account assortment volume uses editable SKU prices to calculate annual revenue',async()=>{
