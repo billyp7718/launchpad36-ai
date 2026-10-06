@@ -29,6 +29,7 @@ import { calculateTrustScore, trustLevel } from '../api/_trust-score.js';
 import { evaluateProductIdentityMatch, normalizeIdentifier } from '../api/_product-identity.js';
 import { evidencePresentation, shouldPromoteObservation } from '../api/_field-evidence.js';
 import { INTELLIGENCE_FOUNDATION_SQL } from '../api/db-init-intelligence-foundation.js';
+import { buildSellInScenario } from '../api/_sell-in-scenario.js';
 import { buildAccountIntelligenceSummary, inStoreCoverage, selectCategoryOwner } from '../api/_account-intelligence-summary.js';
 import { REVENUE_MISSION_SQL } from '../api/db-init-revenue-missions.js';
 import { calculateMissionMetrics, evaluateMissionOpportunity, missionNextActions, normalizePipelineStage } from '../api/_revenue-missions.js';
@@ -1178,6 +1179,28 @@ test('intelligence foundation APIs enforce tenant scope and avoid client-side pr
   assert.doesNotMatch(`${fieldApi}${trustApi}${identityApi}`,/OPENAI_API_KEY|FIRECRAWL_API_KEY|APOLLO_API_KEY/);
   for(const table of ['entity_field_observations','canonical_products','retailer_product_listings','l36_trust_evaluations'])assert.match(status,new RegExp(table));
   assert.match(ui,/db-init-intelligence-foundation/);
+});
+
+test('sell-in scenario planner calculates explainable multi-SKU wholesale revenue and margin',()=>{
+  const scenario=buildSellInScenario({accountFootprint:100,assortment:[{product_id:'p1',product_name:'Bookshelf Speaker',brand_name:'Aurelius',sku:'AU-BS1',dealer_cost:200,retail_price:400},{product_id:'p2',product_name:'Soundbar',brand_name:'Aurelius',sku:'AU-SB2',dealer_cost:300,retail_price:600}],input:{name:'Regional Pilot',scenario_type:'regional_pilot',deployment_type:'pilot',store_count:50,confidence:82,launch_quarter:'Q1 2027',pilot_markets:'Northeast',selected_skus:[{product_id:'p1',sku:'AU-BS1',monthly_units_per_store:2,promotional_retail_price:350},{product_id:'p2',sku:'AU-SB2',monthly_units_per_store:1}]}});
+  assert.equal(scenario.totals.store_count,50);assert.equal(scenario.totals.expected_monthly_units,150);assert.equal(scenario.totals.expected_monthly_wholesale_revenue,35000);assert.equal(scenario.totals.expected_annual_wholesale_revenue,420000);assert.equal(scenario.selected_skus[0].retailer_margin_percent,42.86);assert.equal(scenario.calculation.revenue_type,'MODELED_MANUFACTURER_WHOLESALE_REVENUE');assert.equal(scenario.assumptions.provenance,'USER_ENTERED');assert.equal(scenario.confidence_status,'USER_ENTERED');
+});
+
+test('sell-in scenario planner makes online-only scope explicit and rejects unrelated SKUs',()=>{
+  const assortment=[{product_id:'p1',product_name:'Speaker',sku:'SP-1',dealer_cost:100,retail_price:200}],online=buildSellInScenario({accountFootprint:500,assortment,input:{name:'Online Only',deployment_type:'online_only',store_count:500,selected_skus:[{product_id:'p1',sku:'SP-1',monthly_units_per_store:10}]}});
+  assert.equal(online.totals.store_count,1);assert.equal(online.assumptions.online_only,true);assert.equal(online.assumptions.in_store,false);assert.equal(online.totals.expected_annual_wholesale_revenue,12000);
+  assert.throws(()=>buildSellInScenario({assortment,input:{name:'Invalid',selected_skus:[{product_id:'other',sku:'NOPE'}]}}),/not part of this opportunity/);
+  assert.throws(()=>buildSellInScenario({assortment,input:{name:'Duplicate',selected_skus:[{product_id:'p1',sku:'SP-1'},{product_id:'p1',sku:'SP-1'}]}}),/only once/);
+  assert.throws(()=>buildSellInScenario({assortment,input:{name:'Invalid deployment',deployment_type:'worldwide',selected_skus:[{product_id:'p1',sku:'SP-1'}]}}),/supported deployment/);
+});
+
+test('sell-in scenario storage is additive, idempotent and tenant scoped',async()=>{
+  const [migration,apiSource,status,appShell]=await Promise.all([readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),readFile(new URL('../api/sell-in-scenarios.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')]),start=migration.indexOf('create table if not exists sell_in_scenarios'),end=migration.indexOf('create or replace function prevent_l36_immutable_mutation'),section=migration.slice(start,end);
+  assert.ok(start>=0);assert.match(section,/create unique index if not exists sell_in_scenarios_name_uidx/);assert.match(section,/alter table sell_in_scenarios add column if not exists/);assert.doesNotMatch(section,/drop\s+(table|column)|truncate|delete\s+from/i);assert.match(apiSource,/resolveTenant\(req,res\)/);assert.match(apiSource,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(apiSource,/canAccess\(workspace,tenant\)/);assert.match(apiSource,/canAccess\(existing,tenant\)/);assert.match(apiSource,/owner_user_id/);assert.match(apiSource,/team_id/);assert.doesNotMatch(apiSource,/on conflict[\s\S]*do update/);assert.doesNotMatch(apiSource,/OPENAI_API_KEY|FIRECRAWL_API_KEY|APOLLO_API_KEY/);assert.match(status,/sell_in_scenarios/);assert.match(appShell,/sell-in-scenario-ui\.js/);
+});
+
+test('opportunity workspace exposes saved scenario comparison and visible assumptions',async()=>{
+  const ui=await readFile(new URL('../sell-in-scenario-ui.js',import.meta.url),'utf8');for(const marker of ['SELL-IN SCENARIO PLANNER','Conservative','Regional Pilot','Recommended','National','Stores','Monthly Units','Monthly Wholesale','Year 1 Wholesale','Confidence','MODELED','USER ENTERED','not verified retailer sales','dealer cost × units/store/month × stores × 12','pilot markets','display assumptions','marketing assumptions','promotional period','launch date'])assert.match(ui,new RegExp(marker,'i'));assert.match(ui,/api\/sell-in-scenarios/);assert.match(ui,/originalOpen/);assert.match(ui,/openOpportunityWorkspace/);assert.match(ui,/selected_skus/);assert.match(ui,/data-capability="APP_WRITE"/);assert.match(ui,/!can\('APP_WRITE'\)/);
 });
 
 test('Account Intelligence Summary answers the four commercial questions from attributable data',()=>{

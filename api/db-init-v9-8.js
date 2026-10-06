@@ -290,6 +290,24 @@ alter table opportunity_workspaces add column if not exists team_id uuid referen
 alter table opportunity_workspaces add column if not exists visibility text not null default 'tenant';
 create index if not exists opportunity_workspaces_scope_idx on opportunity_workspaces(manufacturer_id,visibility,team_id,owner_user_id,updated_at desc);
 
+create table if not exists sell_in_scenarios (
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ opportunity_workspace_id uuid not null references opportunity_workspaces(id) on delete cascade,
+ organization_id uuid not null references retail_organizations(id) on delete cascade,
+ name text not null, scenario_type text not null default 'custom', deployment_type text not null default 'pilot',
+ selected_skus jsonb not null default '[]'::jsonb, assumptions jsonb not null default '{}'::jsonb,
+ calculated_snapshot jsonb not null default '{}'::jsonb, confidence integer not null default 0,
+ notes text not null default '', launch_date date,
+ owner_user_id uuid references manufacturer_members(id) on delete set null,
+ team_id uuid references manufacturer_teams(id) on delete set null,
+ visibility text not null default 'private', created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+alter table sell_in_scenarios add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null;
+alter table sell_in_scenarios add column if not exists team_id uuid references manufacturer_teams(id) on delete set null;
+alter table sell_in_scenarios add column if not exists visibility text not null default 'private';
+create unique index if not exists sell_in_scenarios_name_uidx on sell_in_scenarios(manufacturer_id,opportunity_workspace_id,lower(name));
+create index if not exists sell_in_scenarios_scope_idx on sell_in_scenarios(manufacturer_id,opportunity_workspace_id,visibility,team_id,owner_user_id,updated_at desc);
+
 create or replace function prevent_l36_immutable_mutation() returns trigger language plpgsql as $$
 begin raise exception '% is immutable; append a new record instead',tg_table_name; end $$;
 drop trigger if exists commercial_evidence_immutable on commercial_evidence;

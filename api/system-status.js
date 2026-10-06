@@ -11,6 +11,7 @@ const REQUIRED_TABLES = [
   'intelligence_change_event_processing',
   'monitor_targets',
   'opportunity_workspaces',
+  'sell_in_scenarios',
   'market_opportunity_scenarios',
   'market_analysis_report_snapshots',
   'refresh_runs',
