@@ -10,7 +10,7 @@ import { AURELIUS_AUDIO_DEMO } from '../api/demo-catalog.js';
 import { validateCommercialObservation, livingHash, refreshTier } from '../api/_living-intelligence.js';
 import { verifyFirecrawlSignature, monitorJudgmentMeaningful, shouldProcessMonitorPage } from '../api/firecrawl-monitor-webhook.js';
 import { normalizeOfferings, focusTokens } from '../api/living-intelligence-refresh.js';
-import { calculateMarketOpportunity, calculateMultiRouteMarketOpportunity, categoryConcepts, evaluateProductAccountFit } from '../api/market-opportunity.js';
+import { applyAccountScope, calculateMarketOpportunity, calculateMultiRouteMarketOpportunity, categoryConcepts, compareAccountRank, evaluateProductAccountFit } from '../api/market-opportunity.js';
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { buyerCategorySearchTerms, normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources, searchOpenAIBuyers } from '../api/_openai-research.js';
@@ -768,6 +768,35 @@ test('multi-route market opportunity combines selected routes and deduplicates c
   assert.deepEqual(result.account_opportunities.map(x=>x.organization_id).sort(),['crossover','partner','retail']);
   assert.equal(result.summary.target_account_count,3);assert.deepEqual(result.assumptions.routes_to_market,['retail','distributor_dealer']);assert.equal(result.assumptions.route_to_market,'mixed');
   assert.deepEqual(result.account_opportunities.find(x=>x.organization_id==='crossover').routes_to_market,['retail','distributor_dealer']);
+});
+
+test('account scope caps recommended accounts with deterministic fit ranking and recomputed totals',()=>{
+  const accounts=Array.from({length:30},(_,index)=>({organization_id:`id-${String(index).padStart(2,'0')}`,name:index===0?'Zulu':'Account '+index,fit_score:index<2?90:89-index,base_manufacturer_revenue:index===0?100:index===1?200:10,low_manufacturer_revenue:5,high_manufacturer_revenue:15,evidence_backed_manufacturer_revenue:index===1?200:0,base_retail_value:20,evidence_status:index===1?'VERIFIED':'INSUFFICIENT',recommendation_eligible:true,product_contributions:[{product_category:'Audio',base_manufacturer_revenue:index===0?100:index===1?200:10}]}));
+  const scoped=applyAccountScope({summary:{selected_product_count:1,priced_sku_count:1},assumptions:{},account_opportunities:accounts,warnings:[]},{mode:'recommended',maximum_relevant_accounts:25,custom_account_ids:[]});
+  assert.equal(scoped.account_opportunities.length,25);assert.equal(scoped.account_opportunities[0].organization_id,'id-01');assert.equal(scoped.account_opportunities[1].organization_id,'id-00');
+  assert.equal(scoped.summary.target_account_count,25);assert.equal(scoped.summary.base_manufacturer_revenue,530);assert.equal(scoped.account_scope.display_summary,'25 recommended + 0 custom = 25 accounts analyzed');
+  assert.equal(compareAccountRank({fit_score:80,base_manufacturer_revenue:100,name:'Alpha',organization_id:'2'},{fit_score:80,base_manufacturer_revenue:100,name:'Alpha',organization_id:'1'}),1);
+});
+
+test('custom account scopes remove duplicates, retain real fit, and recalculate downstream opportunity',()=>{
+  const accounts=[
+    {organization_id:'top',name:'Top',fit_score:95,base_manufacturer_revenue:1000,low_manufacturer_revenue:650,high_manufacturer_revenue:1350,evidence_backed_manufacturer_revenue:1000,base_retail_value:1500,evidence_status:'VERIFIED',recommendation_eligible:true,product_contributions:[{product_category:'Audio',base_manufacturer_revenue:1000}]},
+    {organization_id:'custom-fit',name:'Custom Fit',fit_score:70,base_manufacturer_revenue:400,low_manufacturer_revenue:260,high_manufacturer_revenue:540,evidence_backed_manufacturer_revenue:0,base_retail_value:600,evidence_status:'REVIEW_REQUIRED',recommendation_eligible:true,product_contributions:[{product_category:'Audio',base_manufacturer_revenue:400}]},
+    {organization_id:'custom-zero',name:'Custom Zero',fit_score:0,fit_reason:'No selected product fits this account',base_manufacturer_revenue:0,low_manufacturer_revenue:0,high_manufacturer_revenue:0,evidence_backed_manufacturer_revenue:0,base_retail_value:0,evidence_status:'INSUFFICIENT',recommendation_eligible:false,product_contributions:[]}
+  ],input={summary:{selected_product_count:1,priced_sku_count:1},assumptions:{},account_opportunities:accounts,warnings:[]};
+  const customOnly=applyAccountScope(input,{mode:'custom_only',maximum_relevant_accounts:25,custom_account_ids:['custom-zero','custom-fit','custom-zero']});
+  assert.deepEqual(customOnly.account_opportunities.map(row=>row.organization_id),['custom-fit','custom-zero']);assert.equal(customOnly.summary.base_manufacturer_revenue,400);assert.equal(customOnly.account_opportunities[1].fit_score,0);assert.equal(customOnly.account_opportunities[1].evidence_status,'INSUFFICIENT');
+  const combined=applyAccountScope(input,{mode:'recommended_plus_custom',maximum_relevant_accounts:25,custom_account_ids:['top','custom-zero','custom-zero']});
+  assert.deepEqual(combined.account_opportunities.map(row=>row.organization_id),['top','custom-fit','custom-zero']);assert.equal(combined.account_scope.recommended_count,2);assert.equal(combined.account_scope.custom_count,1);assert.equal(combined.account_opportunities.filter(row=>row.organization_id==='top').length,1);assert.equal(combined.summary.base_manufacturer_revenue,1400);
+});
+
+test('account scope UI persists scenarios and records inclusion provenance in report snapshots',async()=>{
+  const [ui,scenarios,appShell]=await Promise.all([readFile(new URL('../market-account-scope-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/market-scenarios.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')]);
+  for(const marker of ['Maximum Relevant Accounts','Recommended Accounts','Custom Accounts Only','Recommended \\+ Custom','account-universe','custom_account_ids','marketFormPayload','marketReportSnapshotPayload','scope_source','configured_account_limit','runMarketOpportunity'])assert.match(ui,new RegExp(marker));
+  assert.match(scenarios,/assumptions=\$\{sql\.json\(result\.assumptions\|\|\{\}\)\}/);assert.match(scenarios,/result_snapshot/);assert.match(appShell,/market-account-scope-ui\.js/);
+  const accountScope={mode:'recommended_plus_custom',maximum_relevant_accounts:50,custom_account_ids:['custom-1'],display_summary:'50 recommended + 1 custom = 51 accounts analyzed'},context=createContext({state:{marketOpportunity:{account_scope:accountScope,account_opportunities:[{organization_id:'custom-1',name:'Custom One',scope_source:'CUSTOM',system_recommended:false,manually_included:true}],selected_products:[]},orgs:[]},window:null,document:{body:{},getElementById:()=>null,querySelectorAll:()=>[]},MutationObserver:class{observe(){}},market:()=>'<p class="muted">Catalog wholesale price is used when available.',marketFormPayload:()=>({product_ids:['p1']}),renderMarketResults:()=>'',marketReportSnapshotPayload:()=>({assumptions:{},accounts:[{name:'Custom One'}]}),marketAccounts:()=>[{scope_source:'CUSTOM',system_recommended:false,manually_included:true}],esc:value=>String(value),api:async()=>({organizations:[]}),encodeURIComponent,clearTimeout,setTimeout:()=>0,Symbol,Set,Map,String,Number,Boolean,Array});context.window=context;runInContext(ui,context);
+  const restored=JSON.parse(runInContext('JSON.stringify(marketFormPayload())',context)),snapshot=JSON.parse(runInContext('JSON.stringify(marketReportSnapshotPayload())',context));
+  assert.deepEqual(restored.account_scope,{mode:'recommended_plus_custom',maximum_relevant_accounts:50,custom_account_ids:['custom-1']});assert.equal(snapshot.account_scope.maximum_relevant_accounts,50);assert.equal(snapshot.accounts[0].scope_source,'CUSTOM');assert.equal(snapshot.accounts[0].configured_account_limit,50);
 });
 
 test('market intelligence UI supports multiple products, channel models and SKU drill-down',async()=>{
