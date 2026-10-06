@@ -295,6 +295,12 @@ test('market report validation identifies the missing snapshot component',()=>{
   assert.throws(()=>validateReportSnapshot({selected_products:[{name:'ErgoAV Product'}],accounts:[]}),/PDF snapshot contains no included accounts/);
 });
 
+test('download-only account briefs create an immutable snapshot without a legacy email body',async()=>{
+  let inserted=null;const sql=async(strings,...values)=>{const query=strings.join('?');if(query.includes('select id,title'))return [];if(query.includes('insert into market_analysis_report_snapshots')){inserted={id:'33333333-3333-3333-3333-333333333333',title:values[1],brand_name:values[2],analysis_date:values[3],filename:values[4],content_hash:values[5],report_snapshot:values[6],email_html:values[7],created_at:new Date().toISOString()};return [inserted]}throw new Error(`Unexpected SQL: ${query}`)};sql.json=value=>value;
+  const row=await createReportSnapshot(sql,'tenant-1',{snapshot:reportFixture(1),email_html:''});
+  assert.equal(row.id,inserted.id);assert.match(inserted.email_html,/authenticated PDF download/);assert.ok(inserted.email_html.length>=100);assert.match(inserted.email_html,/not verified retailer sales/);
+});
+
 test('email attachment preparation fails closed when PDF generation or size validation fails',async()=>{
   await assert.rejects(()=>prepareMarketReportAttachment(reportFixture(),async()=>{throw new Error('renderer failed')}),error=>error.code==='PDF_GENERATION_FAILED'&&/no email was sent/i.test(error.message));
   await assert.rejects(()=>prepareMarketReportAttachment(reportFixture(),async()=>Buffer.alloc(8*1024*1024+1)),error=>error.code==='PDF_ATTACHMENT_TOO_LARGE'&&/no email was sent/i.test(error.message));
