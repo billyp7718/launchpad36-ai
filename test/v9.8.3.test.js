@@ -20,7 +20,7 @@ import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
 import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,reportSnapshotHash,validateReportSnapshot } from '../api/_market-report.js';
 import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-snapshots.js';
-import { calculateSkuAnnualRevenue } from '../api/opportunities.js';
+import { calculateSkuAnnualRevenue,competitiveOfferingRelevant } from '../api/opportunities.js';
 import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
 import { canSeeAllTenantData } from '../api/_tenant.js';
 import { isPermanentAdminEmail, PERMANENT_ADMIN_EMAILS } from '../api/_identity.js';
@@ -1041,6 +1041,23 @@ test('opportunity details support editable proposed assortments and account comp
   assert.match(apiSource,/assigned_buyer_ids/);assert.match(apiSource,/assigned_buyers/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
 });
 
+test('opportunity competitive products are limited to selected categories unless explicitly linked',()=>{
+  const workspace={product_ids:['audio-1'],scenario:{proposed_assortment:[{product_id:'audio-1',product_name:'Aurelius Soundbar',product_category:'Audio'}]}};
+  const catalog=[{id:'audio-1',name:'Aurelius Soundbar',category:'Home Audio',product_family:'Soundbars'}];
+  assert.equal(competitiveOfferingRelevant({name:'Cinema Soundbar',category:'Home Theater'},workspace,catalog),true);
+  assert.equal(competitiveOfferingRelevant({name:'Front Load Washer',category:'Laundry Appliances'},workspace,catalog),false);
+  assert.equal(competitiveOfferingRelevant({name:'Uncategorized item',category:'Other',comparison_product_ids:['audio-1']},workspace,catalog),true);
+});
+
+test('account opportunity workspace supports scoped manual buyers and reversible competitive corrections',async()=>{
+  const [ui,buyersApi,productsApi,opportunitiesApi]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/buyers.js',import.meta.url),'utf8'),readFile(new URL('../api/competitive-products.js',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')]);
+  for(const marker of ['Add Buyer Manually','openManualOpportunityBuyer','saveManualOpportunityBuyer','Department','Category scope','Category ownership evidence URL','openCompetitiveProductEditor','saveCompetitiveProductEdit','removeCompetitiveProduct'])assert.match(ui,new RegExp(marker));
+  for(const source of [buyersApi,productsApi]){assert.match(source,/opportunity_workspaces/);assert.match(source,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(source,/canAccess/);assert.match(source,/organization_id/)}
+  assert.match(buyersApi,/categoryStatus=categoryEvidenceUrl\?'PROBABLE':'UNCONFIRMED'/);assert.match(buyersApi,/appendBuyerRelationship/);assert.match(buyersApi,/manual_entry/);
+  assert.match(productsApi,/req\.method==='PATCH'/);assert.match(productsApi,/req\.method==='DELETE'/);assert.match(productsApi,/set active=false/);assert.match(productsApi,/verification_status='REVIEW_REQUIRED'/);assert.doesNotMatch(productsApi,/delete\s+from\s+competitive_products/i);
+  assert.match(opportunitiesApi,/competitive_offerings_excluded/);assert.match(opportunitiesApi,/competitiveOfferingRelevant/);assert.match(opportunitiesApi,/source_kind/);
+});
+
 test('account opportunity model consolidates account tabs, SKUs and buyers into an executive PDF',async()=>{
   const [ui,apiSource,pdfSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/_market-report.js',import.meta.url),'utf8')]);
   for(const marker of ['Combine products from this account','accountTabAssortment','mergeOpportunityTabAssortments','Download Executive Brief','downloadAccountOpportunityBrief','consolidatedOpportunityPlan','market-report-snapshots','market-report-pdf'])assert.match(ui,new RegExp(marker));
@@ -1254,10 +1271,10 @@ test('Revenue Mission actions disclose evidence gaps and require approval for co
   const actions=missionNextActions([evaluated],125000);assert.ok(actions.some(item=>/Verify current assortment/.test(item.action)));assert.ok(actions.some(item=>/category owner/.test(item.action)));assert.ok(actions.some(item=>/sell-in assumptions/.test(item.action)));assert.ok(actions.some(item=>item.approval_required===true));assert.equal(evaluated.evidence_status,'INSUFFICIENT');
 });
 
-test('Revenue Mission API enforces tenant scope and exposes no destructive endpoint',async()=>{
+test('Revenue Mission API scopes link removal and preserves opportunity workspaces',async()=>{
   const source=await readFile(new URL('../api/revenue-missions.js',import.meta.url),'utf8');
   assert.match(source,/resolveTenant\(req,res\)/);assert.match(source,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(source,/validateProducts/);assert.match(source,/validateOpportunities/);assert.match(source,/canAccess/);assert.match(source,/team_ids/);assert.match(source,/Only an Administrator can create a tenant-wide mission/);
-  assert.doesNotMatch(source,/req\.method==='DELETE'|delete\s+from/i);assert.match(source,/PIPELINE_STAGE_CHANGED/);assert.match(source,/SCHEMA_REQUIRED/);
+  assert.doesNotMatch(source,/req\.method==='DELETE'|delete\s+from\s+(revenue_missions|opportunity_workspaces)/i);assert.match(source,/delete from revenue_mission_opportunities/);assert.match(source,/OPPORTUNITY_UNLINKED/);assert.match(source,/opportunity_preserved:true/);assert.match(source,/PIPELINE_STAGE_CHANGED/);assert.match(source,/SCHEMA_REQUIRED/);
 });
 
 test('Find Me Revenue renders mission progress from existing opportunity workspaces',async()=>{
@@ -1265,6 +1282,12 @@ test('Find Me Revenue renders mission progress from existing opportunity workspa
   for(const marker of ['REVENUE MISSIONS','Create Revenue Mission','Target','Identified','Qualified','Buyer Confirmed','Remaining Gap','Confidence-adjusted','L36 Trust','Human approval is required','currentOpportunityIds'])assert.match(ui,new RegExp(marker,'i'));
   assert.match(ui,/state\.marketOpportunity\?\.workspaces/);
   assert.match(ui,/\/api\/revenue-missions/);assert.doesNotMatch(ui,/mailto:|sendEmail|automatic.{0,20}(email|contact)/i);assert.match(shell,/revenue-missions-ui\.js/);assert.match(index,/db-init-revenue-missions/);
+});
+
+test('Revenue Mission UI opens, adds and unlinks account opportunities from the mission screen',async()=>{
+  const ui=await readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8');
+  for(const marker of ['Linked account opportunities','openLinkedRevenueOpportunity','missionOpportunityPicker','Add Opportunity','linkSelectedRevenueMission','unlinkRevenueMissionOpportunity','Link Current Analysis'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/action:'unlink_opportunity'/);assert.match(ui,/The account opportunity and all evidence will be preserved/);assert.match(ui,/api\('\/api\/opportunities'\)/);
 });
 
 test('opportunity and weekly research recalculation refresh linked Revenue Missions without requiring the new schema',async()=>{
