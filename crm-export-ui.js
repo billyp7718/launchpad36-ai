@@ -1,7 +1,7 @@
 (()=>{
  if(window.__L36_CRM_EXPORT__)return;window.__L36_CRM_EXPORT__=true;
  const profile=()=>window.__L36_PROFILE__||{},role=()=>String(profile()?.user?.role||'').toLowerCase(),isAdmin=()=>['owner','admin'].includes(role());
- const CRM_URL='https://launchpad36-crm.billyp7718.chatgpt.site';
+ const CRM_URL='https://crm.launchpad36.com';
  const BRIDGE_ENDPOINT='https://launchpad36-ai.vercel.app/api/crm-bridge-feed';
  const esc2=s=>typeof esc==='function'?esc(s):String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
  function showPanel(title,html){if(typeof window.modal==='function'){window.modal(title,html);return true}const host=document.getElementById('modal'),body=document.getElementById('modalBody')||document.getElementById('modalCard')||host?.querySelector('.modalCard');if(!host||!body)return false;body.innerHTML=html;host.classList.add('show');return true}

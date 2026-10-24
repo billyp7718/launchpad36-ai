@@ -1,7 +1,7 @@
 import { db } from './_db.js';
 import { verifyCrmBridgeToken } from './crm-bridge-token.js';
 
-const CRM_ORIGIN='https://launchpad36-crm.billyp7718.chatgpt.site';
+const CRM_ORIGIN='https://crm.launchpad36.com';
 export default async function handler(req,res){
   const origin=String(req.headers.origin||'');
   if(origin===CRM_ORIGIN)res.setHeader('Access-Control-Allow-Origin',CRM_ORIGIN);

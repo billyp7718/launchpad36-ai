@@ -73,6 +73,13 @@ test('identity schema initialization serializes concurrent serverless migrations
   assert.match(ui,/portfolioResult\.status==='fulfilled'/);assert.match(ui,/universeResult\.status==='fulfilled'/);assert.match(ui,/Products:/);assert.match(ui,/Accounts:/);
 });
 
+test('CRM export opens the production CRM domain and bridge CORS matches it',async()=>{
+  const [ui,bridge]=await Promise.all([readFile(new URL('../crm-export-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/crm-bridge-feed.js',import.meta.url),'utf8')]);
+  for(const source of [ui,bridge])assert.match(source,/https:\/\/crm\.launchpad36\.com/);
+  assert.doesNotMatch(`${ui}${bridge}`,/launchpad36-crm\.billyp7718\.chatgpt\.site/);
+  assert.match(ui,/window\.open\(CRM_URL,'_blank','noopener,noreferrer'\)/);assert.match(bridge,/Access-Control-Allow-Origin',CRM_ORIGIN/);
+});
+
 test('workspace administration opens the existing application modal',async()=>{
   const ui=await readFile(new URL('../multi-user-ui.js',import.meta.url),'utf8');
   assert.match(ui,/getElementById\('modalCard'\)/);
