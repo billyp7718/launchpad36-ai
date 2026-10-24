@@ -1,6 +1,7 @@
 import { db } from './_db.js';
 import { resolveTenant,canSeeAllTenantData } from './_tenant.js';
 import { refreshRevenueMissionsForOpportunities } from './_revenue-missions.js';
+import { categoryConcepts } from './_account-fit.js';
 
 const clean=(value,max=300)=>String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 const STATUSES=new Set(['modeled','research_required','ready','approved','archived']);
@@ -32,12 +33,26 @@ function competitiveOfferings(evidenceRows=[],productRows=[]){
     const key=`${organizationId}|${brand}|${name}|${sourceUrl}`.toLowerCase();if(seen.has(key))return;seen.add(key);
     const rows=grouped.get(String(organizationId))||[];
     let researchContext={};try{researchContext=typeof item.raw_text==='string'?JSON.parse(item.raw_text):item.research_context||{}}catch{}
-    if(rows.length<100)rows.push({name,brand,category:clean(item.category,140),price_text:clean(item.price_text,80),availability:clean(item.availability,180),source_url:sourceUrl,verification_status:clean(item.verification_status||'REVIEW_REQUIRED',40),observed_at:item.observed_at||null,purchase_channel:clean(item.purchase_channel||researchContext.purchase_channel||'UNKNOWN',40),store_verification:clean(item.store_verification||researchContext.store_verification||'NOT_REQUESTED',40),comparison_product_ids:Array.isArray(researchContext.comparison_product_ids)?researchContext.comparison_product_ids.map(String):[]});
+    if(rows.length<100)rows.push({id:item.id||null,account_id:item.account_id||null,name,brand,category:clean(item.category,140),price_text:clean(item.price_text,80),availability:clean(item.availability,180),source_url:sourceUrl,verification_status:clean(item.verification_status||'REVIEW_REQUIRED',40),observed_at:item.observed_at||null,purchase_channel:clean(item.purchase_channel||researchContext.purchase_channel||'UNKNOWN',40),store_verification:clean(item.store_verification||researchContext.store_verification||'NOT_REQUESTED',40),comparison_product_ids:Array.isArray(researchContext.comparison_product_ids)?researchContext.comparison_product_ids.map(String):[],source_kind:item.id?'competitive_product':'commercial_evidence',editable:Boolean(item.id)});
     grouped.set(String(organizationId),rows);
   };
-  for(const row of evidenceRows)for(const item of Array.isArray(row.payload?.offerings)?row.payload.offerings:[])add(row.organization_id,{...item,source_url:row.source_url,verification_status:row.verification_status,observed_at:row.observed_at});
   for(const row of productRows)add(row.organization_id,row);
+  for(const row of evidenceRows)for(const item of Array.isArray(row.payload?.offerings)?row.payload.offerings:[])add(row.organization_id,{...item,source_url:row.source_url,verification_status:row.verification_status,observed_at:row.observed_at});
   return grouped;
+}
+
+const RELEVANCE_STOPWORDS=new Set(['and','the','for','with','from','your','product','products','series','system','model','retail','consumer','professional','home']);
+const relevanceTokens=values=>new Set(values.flatMap(value=>String(value||'').toLowerCase().split(/[^a-z0-9]+/)).filter(value=>value.length>2&&!RELEVANCE_STOPWORDS.has(value)));
+export function competitiveOfferingRelevant(offering={},workspace={},catalog=[]){
+  const productIds=new Set((workspace.product_ids||[]).map(String)),linked=(offering.comparison_product_ids||[]).map(String);
+  if(linked.some(id=>productIds.has(id)))return true;
+  const selected=catalog.filter(product=>productIds.has(String(product.id))),assortment=workspace.scenario?.proposed_assortment||workspace.scenario?.account?.product_contributions||[];
+  const selectedTerms=[...selected.flatMap(product=>[product.name,product.category,product.product_family]),...assortment.flatMap(item=>[item.product_name,item.product_category,item.product_family,item.category])].filter(Boolean);
+  const offeringTerms=[offering.name,offering.category].filter(Boolean);if(!selectedTerms.length||!offeringTerms.length)return false;
+  const selectedConcepts=new Set(categoryConcepts(selectedTerms)),offeringConcepts=new Set(categoryConcepts(offeringTerms));
+  if([...selectedConcepts].some(concept=>offeringConcepts.has(concept)))return true;
+  const selectedTokens=relevanceTokens(selectedTerms),offeringTokens=relevanceTokens(offeringTerms);
+  return [...selectedTokens].some(token=>offeringTokens.has(token));
 }
 
 async function proposedAssortment(sql,tenant,input=[],storeCount=1){
@@ -90,15 +105,17 @@ export default async function handler(req,res){
         where ow.manufacturer_id=${tenant.tenant_id} and (${canSeeAllTenantData(tenant)} or ow.owner_user_id=${tenant.user_id} or (ow.visibility='team' and ow.team_id=any(${tenant.team_ids||[]}::uuid[])) or (ow.visibility='tenant' and ow.owner_user_id is null and ow.team_id is null))
         order by case ow.status when 'approved' then 1 when 'ready' then 2 when 'research_required' then 3 else 4 end,ow.updated_at desc
         limit 500`;
-      let evidenceRows=[],productRows=[];
+      let evidenceRows=[],productRows=[],catalog=[];
       if(rows.length){
-        [evidenceRows,productRows]=await Promise.all([
+        [evidenceRows,productRows,catalog]=await Promise.all([
           sql`with latest as(select distinct on(ce.subject_type,ce.subject_key) ce.*,es.source_url from commercial_evidence ce join evidence_sources es on es.id=ce.source_id where ce.organization_id in (select organization_id from opportunity_workspaces where manufacturer_id=${tenant.tenant_id}) and ce.subject_type='retailer_assortment' order by ce.subject_type,ce.subject_key,ce.observed_at desc) select organization_id,payload,source_url,verification_status,observed_at from latest where verification_status in ('VERIFIED','REVIEW_REQUIRED') order by observed_at desc limit 10000`,
-          sql`select a.organization_id,cp.brand,cp.product_name,cp.category,cp.price_text,cp.availability,cp.source_url,cp.verification_status,cp.observed_at,cp.raw_text from competitive_products cp join accounts a on a.id=cp.account_id where a.organization_id in (select organization_id from opportunity_workspaces where manufacturer_id=${tenant.tenant_id}) and cp.active=true order by cp.observed_at desc nulls last limit 10000`
+          sql`select a.organization_id,cp.id,cp.account_id,cp.brand,cp.product_name,cp.category,cp.price_text,cp.availability,cp.source_url,cp.verification_status,cp.observed_at,cp.raw_text from competitive_products cp join accounts a on a.id=cp.account_id where a.organization_id in (select organization_id from opportunity_workspaces where manufacturer_id=${tenant.tenant_id}) and cp.active=true order by cp.observed_at desc nulls last limit 10000`,
+          sql`select p.id,p.name,p.category,p.product_family,p.owner_user_id,p.team_id,p.visibility from products p where p.manufacturer_id=${tenant.tenant_id} and p.active=true`
         ]);
       }
       const offerings=competitiveOfferings(evidenceRows,productRows);
-      return res.status(200).json({version:'9.8.3',opportunities:rows.map(row=>({...row,competitive_offerings:offerings.get(String(row.organization_id))||[]}))});
+      const accessibleCatalog=catalog.filter(product=>canAccess(product,tenant));
+      return res.status(200).json({version:'9.8.3',opportunities:rows.map(row=>{const available=offerings.get(String(row.organization_id))||[],relevant=available.filter(offering=>competitiveOfferingRelevant(offering,row,accessibleCatalog));return {...row,competitive_offerings:relevant,competitive_offerings_excluded:Math.max(0,available.length-relevant.length)}})});
     }
     if(req.method==='DELETE'){
       const id=String(req.query?.id||req.body?.id||'').trim();if(!id)return res.status(400).json({error:'Opportunity id is required'});
