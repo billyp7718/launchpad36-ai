@@ -1152,10 +1152,14 @@ test('market analysis supports persistent account adjustments and complete edita
 });
 
 test('opportunities are grouped by account with brand and analysis-date tabs',async()=>{
-  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  for(const marker of ['opportunityBrands','opportunityDate','opportunityLabel','opportunityTabs','Account Opportunities','Search account, brand, product, or owner','All statuses','All routes'])assert.match(ui,new RegExp(marker,'i'));
+  const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')]);
+  for(const marker of ['opportunityBrands','opportunityDate','opportunityTabTitle','opportunityLabel','opportunityTabs','Custom tab name','Leave blank to use the brand name','Account Opportunities','Search account, brand, product, or owner','All statuses','All routes'])assert.match(ui,new RegExp(marker,'i'));
   assert.match(ui,/state\.workspaces\.filter\(item=>String\(item\.organization_id\)===String\(w\.organization_id\)\)/);
   assert.match(ui,/role="tab"/);assert.match(ui,/aria-selected=/);
+  assert.match(ui,/tab_label=\$\(`tabLabel-\$\{id\}`\)/);assert.match(apiSource,/tab_label:clean\(req\.body\.tab_label,120\)/);assert.match(apiSource,/tab_label_updated_at/);
+  const start=ui.indexOf('function opportunityBrands'),end=ui.indexOf('function filterOpportunityWorkspaces',start),context=createContext({state:{portfolio:{products:[]}},String,Set,Date});runInContext(ui.slice(start,end),context);
+  assert.equal(context.opportunityTabTitle({scenario:{tab_label:'Holiday Audio Push'}}),'Holiday Audio Push');
+  assert.equal(context.opportunityTabTitle({scenario:{tab_label:'',proposed_assortment:[{brand_name:'Aurelius Audio'}]}}),'Aurelius Audio');
 });
 
 test('product intelligence supports multi-product comparison and exact store evidence',async()=>{
