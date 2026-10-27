@@ -20,7 +20,7 @@ import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
 import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,reportSnapshotHash,validateReportSnapshot } from '../api/_market-report.js';
 import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-snapshots.js';
-import { calculateSkuAnnualRevenue,competitiveOfferingRelevant } from '../api/opportunities.js';
+import { buildTargetAssortment,calculateSkuAnnualRevenue,competitiveOfferingRelevant } from '../api/opportunities.js';
 import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
 import { canSeeAllTenantData } from '../api/_tenant.js';
 import { isPermanentAdminEmail, PERMANENT_ADMIN_EMAILS } from '../api/_identity.js';
@@ -1048,6 +1048,27 @@ test('opportunity details support editable proposed assortments and account comp
   assert.match(apiSource,/assigned_buyer_ids/);assert.match(apiSource,/assigned_buyers/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
 });
 
+test('target opportunities preserve exact selected SKUs and brand metadata',async()=>{
+  const products=[{id:'speaker',product_name:'Verona Speaker',brand_name:'Aurelius Audio'}],variants=[{product_id:'speaker',sku:'AA-V100',wholesale:40,msrp:79.99},{product_id:'speaker',sku:'AA-V200',wholesale:65,map:119.99}];
+  const assortment=buildTargetAssortment({products,variants,targetSkus:[{product_id:'speaker',sku:'AA-V200'},{product_id:'speaker',sku:'AA-V200'}]});
+  assert.equal(assortment.length,1);assert.equal(assortment[0].sku,'AA-V200');assert.equal(assortment[0].brand_name,'Aurelius Audio');assert.equal(assortment[0].dealer_cost,65);assert.equal(assortment[0].retail_price,119.99);
+  assert.throws(()=>buildTargetAssortment({products,variants,targetSkus:[{product_id:'speaker',sku:'MISSING'}]}),/not active/);
+  const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')]);
+  for(const marker of ['targetSku:checked','target_skus','Select at least one target SKU','Add a portfolio SKU','product_brands'])assert.match(`${ui}\n${apiSource}`,new RegExp(marker));
+  assert.match(apiSource,/item\.product_id\}::\$\{item\.sku\}/);assert.match(apiSource,/left join brands b on b\.id=p\.brand_id/);assert.match(ui,/apiBrands=w\.product_brands/);
+});
+
+test('add target account filters tenant accounts by channel, custom type, name, and domain',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8'),start=ui.indexOf('function targetAccountMatches'),end=ui.indexOf('function refreshTargetAccountOptions',start),context=createContext({String});runInContext(ui.slice(start,end),context);
+  const account={name:'Acme Hospitality Supply',domain:'acme-hospitality.example',organization_type:'distributor',coverage:'National',channel_codes:['distribution','specialty_av'],categories:['Commercial audio']};
+  assert.equal(context.targetAccountMatches(account,'distribution','',''),true);
+  assert.equal(context.targetAccountMatches(account,'mass','',''),false);
+  assert.equal(context.targetAccountMatches(account,'custom','hospitality',''),true);
+  assert.equal(context.targetAccountMatches(account,'custom','pharmacy',''),false);
+  assert.equal(context.targetAccountMatches(account,'','','acme-hospitality.example'),true);
+  for(const marker of ['Business channel','All business channels','Custom account type','Search accounts','tenant-accessible account'])assert.match(ui,new RegExp(marker));
+});
+
 test('opportunity competitive products are limited to selected categories unless explicitly linked',()=>{
   const workspace={product_ids:['audio-1'],scenario:{proposed_assortment:[{product_id:'audio-1',product_name:'Aurelius Soundbar',product_category:'Audio'}]}};
   const catalog=[{id:'audio-1',name:'Aurelius Soundbar',category:'Home Audio',product_family:'Soundbars'}];
@@ -1131,10 +1152,14 @@ test('market analysis supports persistent account adjustments and complete edita
 });
 
 test('opportunities are grouped by account with brand and analysis-date tabs',async()=>{
-  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  for(const marker of ['opportunityBrands','opportunityDate','opportunityLabel','opportunityTabs','Account Opportunities','Search account, brand, product, or owner','All statuses','All routes'])assert.match(ui,new RegExp(marker,'i'));
+  const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')]);
+  for(const marker of ['opportunityBrands','opportunityDate','opportunityTabTitle','opportunityLabel','opportunityTabs','Custom tab name','Leave blank to use the brand name','Account Opportunities','Search account, brand, product, or owner','All statuses','All routes'])assert.match(ui,new RegExp(marker,'i'));
   assert.match(ui,/state\.workspaces\.filter\(item=>String\(item\.organization_id\)===String\(w\.organization_id\)\)/);
   assert.match(ui,/role="tab"/);assert.match(ui,/aria-selected=/);
+  assert.match(ui,/tab_label=\$\(`tabLabel-\$\{id\}`\)/);assert.match(apiSource,/tab_label:clean\(req\.body\.tab_label,120\)/);assert.match(apiSource,/tab_label_updated_at/);
+  const start=ui.indexOf('function opportunityBrands'),end=ui.indexOf('function filterOpportunityWorkspaces',start),context=createContext({state:{portfolio:{products:[]}},String,Set,Date});runInContext(ui.slice(start,end),context);
+  assert.equal(context.opportunityTabTitle({scenario:{tab_label:'Holiday Audio Push'}}),'Holiday Audio Push');
+  assert.equal(context.opportunityTabTitle({scenario:{tab_label:'',proposed_assortment:[{brand_name:'Aurelius Audio'}]}}),'Aurelius Audio');
 });
 
 test('product intelligence supports multi-product comparison and exact store evidence',async()=>{
@@ -1293,7 +1318,13 @@ test('Find Me Revenue renders mission progress from existing opportunity workspa
 
 test('Revenue Mission UI opens, adds and unlinks account opportunities from the mission screen',async()=>{
   const ui=await readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8');
-  for(const marker of ['Linked account opportunities','openLinkedRevenueOpportunity','missionOpportunityPicker','Add Opportunity','linkSelectedRevenueMission','unlinkRevenueMissionOpportunity','Link Current Analysis'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Linked account opportunities','openLinkedRevenueOpportunity','missionOpportunityPicker','Search account targets','missionOpportunitySearch','filterRevenueMissionOpportunities','Search by account, domain, brand, product, SKU, or route','Add Opportunity','linkSelectedRevenueMission','unlinkRevenueMissionOpportunity','Link Current Analysis'])assert.match(ui,new RegExp(marker));
+  assert.doesNotMatch(ui,/<select id="missionOpportunityPicker"/);
+  const start=ui.indexOf('function missionOpportunityBrandLabel'),end=ui.indexOf('function missionOpportunitySearchResults',start),context=createContext({state:{workspaces:[{id:'one',account_name:'Alpha Audio',domain:'alpha.example',route_to_market:'retail',scenario:{proposed_assortment:[{brand_name:'Aurelius',product_name:'Verona',sku:'AA-V200'}]}},{id:'two',account_name:'Beta Office',domain:'beta.example',route_to_market:'direct_b2b',scenario:{proposed_assortment:[{brand_name:'ErgoAV',product_name:'Lift',sku:'EA-10'}]}}]},String,Set});runInContext(ui.slice(start,end),context);
+  const mission={metrics:{opportunities:[{opportunity_id:'two'}]}};
+  assert.deepEqual(context.availableMissionOpportunities(mission,'alpha').map(row=>row.id),['one']);
+  assert.deepEqual(context.availableMissionOpportunities(mission,'AA-V200').map(row=>row.id),['one']);
+  assert.deepEqual(context.availableMissionOpportunities(mission,'beta'),[]);
   assert.match(ui,/action:'unlink_opportunity'/);assert.match(ui,/The account opportunity and all evidence will be preserved/);assert.match(ui,/api\('\/api\/opportunities'\)/);
 });
 
