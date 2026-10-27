@@ -1314,7 +1314,13 @@ test('Find Me Revenue renders mission progress from existing opportunity workspa
 
 test('Revenue Mission UI opens, adds and unlinks account opportunities from the mission screen',async()=>{
   const ui=await readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8');
-  for(const marker of ['Linked account opportunities','openLinkedRevenueOpportunity','missionOpportunityPicker','Add Opportunity','linkSelectedRevenueMission','unlinkRevenueMissionOpportunity','Link Current Analysis'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Linked account opportunities','openLinkedRevenueOpportunity','missionOpportunityPicker','Search account targets','missionOpportunitySearch','filterRevenueMissionOpportunities','Search by account, domain, brand, product, SKU, or route','Add Opportunity','linkSelectedRevenueMission','unlinkRevenueMissionOpportunity','Link Current Analysis'])assert.match(ui,new RegExp(marker));
+  assert.doesNotMatch(ui,/<select id="missionOpportunityPicker"/);
+  const start=ui.indexOf('function missionOpportunityBrandLabel'),end=ui.indexOf('function missionOpportunitySearchResults',start),context=createContext({state:{workspaces:[{id:'one',account_name:'Alpha Audio',domain:'alpha.example',route_to_market:'retail',scenario:{proposed_assortment:[{brand_name:'Aurelius',product_name:'Verona',sku:'AA-V200'}]}},{id:'two',account_name:'Beta Office',domain:'beta.example',route_to_market:'direct_b2b',scenario:{proposed_assortment:[{brand_name:'ErgoAV',product_name:'Lift',sku:'EA-10'}]}}]},String,Set});runInContext(ui.slice(start,end),context);
+  const mission={metrics:{opportunities:[{opportunity_id:'two'}]}};
+  assert.deepEqual(context.availableMissionOpportunities(mission,'alpha').map(row=>row.id),['one']);
+  assert.deepEqual(context.availableMissionOpportunities(mission,'AA-V200').map(row=>row.id),['one']);
+  assert.deepEqual(context.availableMissionOpportunities(mission,'beta'),[]);
   assert.match(ui,/action:'unlink_opportunity'/);assert.match(ui,/The account opportunity and all evidence will be preserved/);assert.match(ui,/api\('\/api\/opportunities'\)/);
 });
 
