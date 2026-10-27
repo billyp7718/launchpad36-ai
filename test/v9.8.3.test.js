@@ -20,7 +20,7 @@ import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
 import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,reportSnapshotHash,validateReportSnapshot } from '../api/_market-report.js';
 import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-snapshots.js';
-import { calculateSkuAnnualRevenue,competitiveOfferingRelevant } from '../api/opportunities.js';
+import { buildTargetAssortment,calculateSkuAnnualRevenue,competitiveOfferingRelevant } from '../api/opportunities.js';
 import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
 import { canSeeAllTenantData } from '../api/_tenant.js';
 import { isPermanentAdminEmail, PERMANENT_ADMIN_EMAILS } from '../api/_identity.js';
@@ -1046,6 +1046,27 @@ test('opportunity details support editable proposed assortments and account comp
   assert.match(apiSource,/competitive_offerings/);assert.match(apiSource,/b\.email/);assert.match(apiSource,/b\.phone/);assert.match(apiSource,/b\.linkedin/);
   for(const marker of ['Opportunity Buyers','Save Buyers','saveOpportunityBuyers','Research All Buyers'])assert.match(ui,new RegExp(marker));
   assert.match(apiSource,/assigned_buyer_ids/);assert.match(apiSource,/assigned_buyers/);assert.match(apiSource,/buyer_assigned_at/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
+});
+
+test('target opportunities preserve exact selected SKUs and brand metadata',async()=>{
+  const products=[{id:'speaker',product_name:'Verona Speaker',brand_name:'Aurelius Audio'}],variants=[{product_id:'speaker',sku:'AA-V100',wholesale:40,msrp:79.99},{product_id:'speaker',sku:'AA-V200',wholesale:65,map:119.99}];
+  const assortment=buildTargetAssortment({products,variants,targetSkus:[{product_id:'speaker',sku:'AA-V200'},{product_id:'speaker',sku:'AA-V200'}]});
+  assert.equal(assortment.length,1);assert.equal(assortment[0].sku,'AA-V200');assert.equal(assortment[0].brand_name,'Aurelius Audio');assert.equal(assortment[0].dealer_cost,65);assert.equal(assortment[0].retail_price,119.99);
+  assert.throws(()=>buildTargetAssortment({products,variants,targetSkus:[{product_id:'speaker',sku:'MISSING'}]}),/not active/);
+  const [ui,apiSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8')]);
+  for(const marker of ['targetSku:checked','target_skus','Select at least one target SKU','Add a portfolio SKU','product_brands'])assert.match(`${ui}\n${apiSource}`,new RegExp(marker));
+  assert.match(apiSource,/item\.product_id\}::\$\{item\.sku\}/);assert.match(apiSource,/left join brands b on b\.id=p\.brand_id/);assert.match(ui,/apiBrands=w\.product_brands/);
+});
+
+test('add target account filters tenant accounts by channel, custom type, name, and domain',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8'),start=ui.indexOf('function targetAccountMatches'),end=ui.indexOf('function refreshTargetAccountOptions',start),context=createContext({String});runInContext(ui.slice(start,end),context);
+  const account={name:'Acme Hospitality Supply',domain:'acme-hospitality.example',organization_type:'distributor',coverage:'National',channel_codes:['distribution','specialty_av'],categories:['Commercial audio']};
+  assert.equal(context.targetAccountMatches(account,'distribution','',''),true);
+  assert.equal(context.targetAccountMatches(account,'mass','',''),false);
+  assert.equal(context.targetAccountMatches(account,'custom','hospitality',''),true);
+  assert.equal(context.targetAccountMatches(account,'custom','pharmacy',''),false);
+  assert.equal(context.targetAccountMatches(account,'','','acme-hospitality.example'),true);
+  for(const marker of ['Business channel','All business channels','Custom account type','Search accounts','tenant-accessible account'])assert.match(ui,new RegExp(marker));
 });
 
 test('opportunity competitive products are limited to selected categories unless explicitly linked',()=>{
