@@ -18,7 +18,7 @@ import { detectBuyerRelationshipChange, relationshipDisposition } from '../api/_
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
-import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportFilename,reportSnapshotHash,validateReportSnapshot } from '../api/_market-report.js';
+import { generateMarketAnalysisPdf,prepareMarketReportAttachment,reportDisplayText,reportFilename,reportSnapshotHash,validateReportSnapshot } from '../api/_market-report.js';
 import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-snapshots.js';
 import { buildTargetAssortment,calculateSkuAnnualRevenue,competitiveOfferingRelevant } from '../api/opportunities.js';
 import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
@@ -283,6 +283,15 @@ test('Full Market Analysis PDF supports multi-account, multi-SKU, long and optio
   assert.equal(reportFilename('Café & Audio™','2026-09-27T12:00:00Z'),'Launchpad36_Full_Market_Analysis_Cafe_AudioTM_2026-09-27.pdf');
 });
 
+test('Full Market Analysis hides incomplete-status wording and omits retired methodology and evidence-source sections',async()=>{
+  const [pdfSource,ui]=await Promise.all([readFile(new URL('../api/_market-report.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
+  for(const value of ['Unconfirmed','INSUFFICIENT','INSUFFICIENT_EVIDENCE','Needs confirmation','Buyer category unconfirmed'])assert.equal(reportDisplayText(value), '');
+  assert.equal(reportDisplayText('VERIFIED'),'VERIFIED');assert.equal(reportDisplayText('In-store and online'),'In-store and online');
+  assert.doesNotMatch(pdfSource,/w\.heading\('Market Opportunity and Methodology'\)|w\.heading\('Evidence, Confidence and Sources'\)|SOURCE','EVIDENCE STATUS/);
+  const preview=ui.slice(ui.indexOf('function buildMarketReportHtml'),ui.indexOf('function marketReportBuyers'));
+  assert.doesNotMatch(preview,/Model Assumptions|Method & Limitations/);assert.match(preview,/reportDisplayValue\(x\.evidence_status\)/);assert.match(preview,/status\.online\?'Online':''/);
+});
+
 test('PDF download and retained backend email infrastructure use saved snapshots and the shared generator',async()=>{
   const [ui,download,email,snapshots]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/market-report-pdf.js',import.meta.url),'utf8'),readFile(new URL('../api/market-report-email.js',import.meta.url),'utf8'),readFile(new URL('../api/market-report-snapshots.js',import.meta.url),'utf8')]);
   for(const source of [download,email]){assert.match(source,/loadReportSnapshot/);assert.match(source,/snapshot_id|snapshotId/)}
@@ -359,8 +368,8 @@ test('retail industry update uses PostgreSQL-safe daily cache SQL and keeps auth
 test('market analysis output removes markdown and decorative separator symbols',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/function cleanReportNarrative/);
+  assert.match(source,/function reportDisplayValue/);
   assert.match(source,/replace\(\/\\\*\\\*\|__\|`\/g,''\)/);
-  assert.match(source,/annual units per location per SKU/);
   assert.doesNotMatch(source,/Launchpad36 Market Analysis —/);
   assert.doesNotMatch(source,/Generated \$\{esc\(new Date\(\)\.toLocaleString\(\)\)\} ·/);
 });
