@@ -24,7 +24,7 @@ export default async function handler(req,res){
       sql`select * from buyer_meeting_feedback where manufacturer_id=${tenant.tenant_id} and organization_id=${organizationId} order by meeting_at desc limit 50`,
       sql`select * from retail_context_events where manufacturer_id=${tenant.tenant_id} and organization_id=${organizationId} order by happened_at desc limit 100`,
       sql`select * from retail_context_relationships where manufacturer_id=${tenant.tenant_id} and organization_id=${organizationId} and active=true order by updated_at desc limit 100`,
-      sql`select cp.*,coalesce(cp.product_name,cp.name) normalized_name from competitive_products cp where cp.organization_id=${organizationId} order by cp.updated_at desc limit 100`.catch(()=>[])
+      sql`select cp.* from competitive_products cp join accounts a on a.id=cp.account_id where a.organization_id=${organizationId} and cp.active=true order by cp.updated_at desc,cp.brand limit 100`.catch(()=>[])
     ]);
     const summary=buildAccountIntelligenceSummary({organization,target:targets[0]||{},workspaces,buyers,evidence});
     const workspace=workspaces[0]||null;
