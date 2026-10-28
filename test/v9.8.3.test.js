@@ -1109,12 +1109,16 @@ test('account opportunity workspace supports scoped manual buyers and reversible
   assert.match(opportunitiesApi,/competitive_offerings_excluded/);assert.match(opportunitiesApi,/competitiveOfferingRelevant/);assert.match(opportunitiesApi,/source_kind/);
 });
 
-test('account opportunity model consolidates account tabs, SKUs and buyers into an executive PDF',async()=>{
+test('account executive brief includes only the active brand scenario checked SKUs and buyers',async()=>{
   const [ui,apiSource,pdfSource]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/_market-report.js',import.meta.url),'utf8')]);
-  for(const marker of ['Combine products from this account','accountTabAssortment','mergeOpportunityTabAssortments','Download Executive Brief','downloadAccountOpportunityBrief','consolidatedOpportunityPlan','market-report-snapshots','market-report-pdf'])assert.match(ui,new RegExp(marker));
+  for(const marker of ['Combine products from this account','accountTabAssortment','mergeOpportunityTabAssortments','Download Executive Brief','downloadAccountOpportunityBrief','activeScenarioOpportunityPlan','market-report-snapshots','market-report-pdf'])assert.match(ui,new RegExp(marker));
   assert.match(ui,/new Set\(current\.map\(item=>skuComparisonKey\(item\)\)\)/);
   assert.match(ui,/assigned_buyer_ids/);assert.match(apiSource,/assignedBuyers\.length!==buyerIds\.length/);assert.match(apiSource,/a\.organization_id=\$\{existing\.organization_id\}/);
   assert.match(pdfSource,/Executive Takeaways/);assert.match(pdfSource,/recommended_actions/);assert.match(pdfSource,/modeled estimates/);
+  const start=ui.indexOf('function activeScenarioOpportunityPlan'),end=ui.indexOf('async function downloadAccountOpportunityBrief',start),context=createContext({String,Number,Set,Array,normalizeAssortmentItem:item=>({...item}),marketReportBuyers:(_assigned,buyers)=>buyers});
+  runInContext(`${ui.slice(start,end)}globalThis.activeScenarioOpportunityPlan=activeScenarioOpportunityPlan`,context);
+  const selectedBuyer={id:'buyer-selected',name:'Selected Audio Buyer'},workspace={id:'scenario-a',product_brands:['Brand A'],next_action:'Advance Brand A',buyers:[selectedBuyer,{id:'buyer-unassigned',name:'Unassigned Buyer'}],scenario:{account:{footprint:1},proposed_assortment:[{product_id:'a-1',brand_name:'Brand A',product_name:'Checked Speaker',sku:'A-100',annual_revenue:1000},{product_id:'b-1',brand_name:'Brand B',product_name:'Other Tab SKU',sku:'B-200',annual_revenue:2000}],assigned_buyers:[selectedBuyer]}};
+  const plan=context.activeScenarioOpportunityPlan(workspace);assert.equal(JSON.stringify(plan.skus.map(item=>item.sku)),JSON.stringify(['A-100']));assert.equal(JSON.stringify(plan.buyers.map(buyer=>buyer.id)),JSON.stringify(['buyer-selected']));assert.equal(JSON.stringify(plan.brands),JSON.stringify(['Brand A']));assert.equal(JSON.stringify(plan.tabs.map(tab=>tab.id)),JSON.stringify(['scenario-a']));
 });
 
 test('account assortment comparison adds and removes exact SKUs and saves membership with channel status',async()=>{
@@ -1337,6 +1341,15 @@ test('Find Me Revenue renders mission progress from existing opportunity workspa
   for(const marker of ['REVENUE MISSIONS','Create Revenue Mission','Target','Identified','Qualified','Buyer Confirmed','Remaining Gap','Confidence-adjusted','L36 Trust','Human approval is required','currentOpportunityIds'])assert.match(ui,new RegExp(marker,'i'));
   assert.match(ui,/state\.marketOpportunity\?\.workspaces/);
   assert.match(ui,/\/api\/revenue-missions/);assert.doesNotMatch(ui,/mailto:|sendEmail|automatic.{0,20}(email|contact)/i);assert.match(shell,/revenue-missions-ui\.js/);assert.match(index,/db-init-revenue-missions/);
+});
+
+test('Revenue Mission cards preview and export linked scenario data through the shared Full Market Analysis pipeline',async()=>{
+  const ui=await readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8');
+  for(const marker of ['Preview & Export Analysis','Preview & Export Full Analysis','openRevenueMissionReport','missionReportContext','openMarketReport(missionReportContext','/api/opportunities'])assert.match(ui,new RegExp(marker.replace(/[()]/g,'\\$&')));
+  const start=ui.indexOf('function missionReportContext'),end=ui.indexOf('window.openRevenueMissionReport',start),context=createContext({metrics:mission=>mission.metrics||mission,activeScenarioOpportunityPlan:workspace=>({skus:workspace.scenario.proposed_assortment,buyers:workspace.scenario.assigned_buyers||[],brands:[workspace.scenario.proposed_assortment[0].brand_name],actions:[]}),state:{portfolio:{products:[]}},String,Number,Map,Set,Array,Error});
+  runInContext(`${ui.slice(start,end)}globalThis.missionReportContext=missionReportContext`,context);
+  const selectedBuyer={id:'buyer-1',name:'Audio Category Buyer'},mission={id:'mission-1',name:'Audio Growth Mission',target_revenue:500000,target_date:'2027-01-31',metrics:{opportunities:[{opportunity_id:'workspace-1',pipeline_stage:'QUALIFIED',evidence_status:'REVIEW_REQUIRED'}]}},workspace={id:'workspace-1',organization_id:'org-1',account_name:'Example Audio',domain:'example.test',route_to_market:'retail',competitive_offerings:[],scenario:{account:{fit_score:88,evidence_status:'REVIEW_REQUIRED'},proposed_assortment:[{product_id:'product-1',product_name:'Reference Speaker',brand_name:'Brand A',sku:'A-100',annual_revenue:120000}],assigned_buyers:[selectedBuyer],comparison_status:{}}};
+  const report=context.missionReportContext(mission,[workspace]);assert.equal(report.report_title,'Audio Growth Mission Full Market Analysis');assert.equal(JSON.stringify(report.selected_products.map(product=>product.skus)),JSON.stringify([['A-100']]));assert.equal(report.account_opportunities.length,1);assert.equal(JSON.stringify(report.account_opportunities[0].buyers.map(buyer=>buyer.id)),JSON.stringify(['buyer-1']));assert.equal(report.summary.base_manufacturer_revenue,120000);assert.equal(report.assumptions.mission_id,'mission-1');
 });
 
 test('Revenue Mission UI opens, adds and unlinks account opportunities from the mission screen',async()=>{
