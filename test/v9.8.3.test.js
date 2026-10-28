@@ -365,6 +365,16 @@ test('market analysis output removes markdown and decorative separator symbols',
   assert.doesNotMatch(source,/Generated \$\{esc\(new Date\(\)\.toLocaleString\(\)\)\} ·/);
 });
 
+test('slow navigation tabs expose and reliably clear an accessible loading graphic',async()=>{
+  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(source,/id="pageLoading" class="pageLoading" role="status" aria-live="polite" aria-hidden="true"/);
+  assert.match(source,/class="pageLoadingSpinner" aria-hidden="true"/);
+  assert.match(source,/\.pageLoadingSpinner,.navSpinner/);
+  assert.match(source,/content\.setAttribute\('aria-busy',active\?'true':'false'\)/);
+  assert.match(source,/loaders=\{'System Status':loadSystemStatus,'Evidence':loadEvidence,'Buyers':loadBuyerAccount,'Opportunities':loadOpportunityWorkspaces\}/);
+  assert.match(source,/\.finally\(\(\)=>\{if\(token===tabLoadToken\)setTabLoading\(false,n\)\}\)/);
+});
+
 test('retail distributor seed contains 50 unique, categorized, sourceable accounts',()=>{
   assert.equal(RETAIL_DISTRIBUTORS.length,50);
   assert.equal(new Set(RETAIL_DISTRIBUTORS.map(x=>x.name.toLowerCase())).size,50);
