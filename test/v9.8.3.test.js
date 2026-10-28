@@ -1364,3 +1364,11 @@ test('opportunity and weekly research recalculation refresh linked Revenue Missi
   assert.match(weekly,/refreshAllRevenueMissions/);assert.match(weekly,/revenue_missions_refreshed/);
   for(const table of ['revenue_missions','revenue_mission_opportunities','revenue_mission_events'])assert.match(status,new RegExp(table));
 });
+
+
+test('CRM Sales Agent uses account owner instead of opportunity owner',()=>{
+  const row={id:'22222222-2222-4222-8222-222222222222',account_name:'Example Retailer',owner:'Opportunity Owner',account_owner:'Account Owner'};
+  assert.equal(launchpadCrmOpportunityPayload(row,'tenant').owner,'Account Owner');
+  assert.equal(launchpadCrmOpportunityPayload({...row,account_owner:''},'tenant').owner,'');
+  assert.equal(launchpadCrmOpportunityPayload({...row,account_owner:null},'tenant').owner,'Opportunity Owner');
+});
