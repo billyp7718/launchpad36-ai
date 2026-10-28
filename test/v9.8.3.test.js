@@ -33,6 +33,7 @@ import { buildSellInScenario } from '../api/_sell-in-scenario.js';
 import { buildAccountIntelligenceSummary, inStoreCoverage, selectCategoryOwner } from '../api/_account-intelligence-summary.js';
 import { REVENUE_MISSION_SQL } from '../api/db-init-revenue-missions.js';
 import { calculateMissionMetrics, evaluateMissionOpportunity, missionNextActions, normalizePipelineStage } from '../api/_revenue-missions.js';
+import { launchpadCrmOpportunityPayload, launchpadCrmSignatureMessage, launchpadCrmStage, signLaunchpadCrmRequest } from '../api/_crm.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -78,6 +79,21 @@ test('CRM export opens the production CRM domain and bridge CORS matches it',asy
   for(const source of [ui,bridge])assert.match(source,/https:\/\/crm\.launchpad36\.com/);
   assert.doesNotMatch(`${ui}${bridge}`,/launchpad36-crm\.billyp7718\.chatgpt\.site/);
   assert.match(ui,/window\.open\(CRM_URL,'_blank','noopener,noreferrer'\)/);assert.match(bridge,/Access-Control-Allow-Origin',CRM_ORIGIN/);
+});
+
+test('manual Launchpad36 CRM transfer signs tenant-bound requests and maps stable opportunity identities',()=>{
+  const timestamp='1793145600',requestId='89f5fe87-6c6e-4d95-8864-9d860ce70248',body='{"tenant_id":"11111111-1111-4111-8111-111111111111"}',tokenHash='a'.repeat(64);
+  assert.equal(signLaunchpadCrmRequest(tokenHash,timestamp,requestId,body),createHmac('sha256',tokenHash).update(launchpadCrmSignatureMessage(timestamp,requestId,body)).digest('hex'));
+  assert.equal(launchpadCrmStage('approved'),'Qualified');assert.equal(launchpadCrmStage('research_required'),'Discovery');
+  const tenantId='11111111-1111-4111-8111-111111111111',payload=launchpadCrmOpportunityPayload({id:'22222222-2222-4222-8222-222222222222',account_name:'Example Retailer',domain:'example.test',status:'ready',owner:'Alex',route_to_market:'retail',buyers:[{name:'Jane Buyer'}],scenario:{account:{base_manufacturer_revenue:125000,fit_score:84,evidence_status:'REVIEW_REQUIRED'},proposed_assortment:[{brand_name:'Aurelius Audio',product_name:'Arc One',sku:'AA-ARC-100'}]}},tenantId);
+  assert.equal(payload.external_id,`launchpad36-ai:${tenantId}:22222222-2222-4222-8222-222222222222`);assert.equal(payload.company,'Example Retailer');assert.equal(payload.contact,'Jane Buyer');assert.equal(payload.stage,'Qualified');assert.equal(payload.value,125000);assert.match(payload.product_line,/Aurelius Audio Arc One AA-ARC-100/);
+});
+
+test('manual CRM transfer is explicit, tenant scoped, batch capable and separate from standard sync',async()=>{
+  const [route,ui]=await Promise.all([readFile(new URL('../api/crm-opportunity-transfer.js',import.meta.url),'utf8'),readFile(new URL('../crm-export-ui.js',import.meta.url),'utf8')]);
+  assert.match(route,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(route,/ow\.id=any\(\$\{ids\}::uuid\[\]\)/);assert.match(route,/owner_user_id=\$\{tenant\.user_id\}/);assert.match(route,/visibility='team'/);assert.match(route,/crm_bridge_tokens.*active=true/s);assert.match(route,/signLaunchpadCrmRequest/);assert.match(route,/manual_transfer:true,standard_sync:false/);assert.match(route,/limit 10/);
+  for(const marker of ['Send Selected to CRM','Send to Launchpad36 CRM','l36SendOpportunityToCrm','l36SendSelectedOpportunitiesToCrm','/api/crm-opportunity-transfer','separate from standard account/buyer sync'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/crmOpportunitySelection=new Set/);assert.match(ui,/opportunity_ids:opportunityIds/);
 });
 
 test('workspace administration opens the existing application modal',async()=>{
