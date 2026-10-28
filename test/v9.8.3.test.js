@@ -1345,6 +1345,13 @@ test('Revenue Mission API scopes link removal and preserves opportunity workspac
   assert.doesNotMatch(source,/req\.method==='DELETE'|delete\s+from\s+(revenue_missions|opportunity_workspaces)/i);assert.match(source,/delete from revenue_mission_opportunities/);assert.match(source,/OPPORTUNITY_UNLINKED/);assert.match(source,/opportunity_preserved:true/);assert.match(source,/PIPELINE_STAGE_CHANGED/);assert.match(source,/SCHEMA_REQUIRED/);
 });
 
+test('Revenue Missions allow scoped name and target edits while retaining append-only history',async()=>{
+  const [ui,apiSource]=await Promise.all([readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/revenue-missions.js',import.meta.url),'utf8')]);
+  for(const marker of ['Edit Mission','openEditRevenueMission','editMissionName','editMissionTarget','saveRevenueMissionSettings','Save Mission','Revenue Mission updated'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/action:'update',id,name,target_revenue:targetRevenue/);assert.match(ui,/can\('APP_WRITE'\)/);assert.match(ui,/missionList\(\)\.map\(missionCard\)/);
+  assert.match(apiSource,/if\(action==='update'\)/);assert.match(apiSource,/positiveMoney\(req\.body\.target_revenue\)/);assert.match(apiSource,/where id=\$\{id\} and manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(apiSource,/event_type,previous_value,new_value,summary/);assert.match(apiSource,/'UPDATED'/);
+});
+
 test('Find Me Revenue renders mission progress from existing opportunity workspaces',async()=>{
   const [ui,shell,index]=await Promise.all([readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
   for(const marker of ['REVENUE MISSIONS','Create Revenue Mission','Target','Identified','Qualified','Buyer Confirmed','Remaining Gap','Confidence-adjusted','L36 Trust','Human approval is required','currentOpportunityIds'])assert.match(ui,new RegExp(marker,'i'));
