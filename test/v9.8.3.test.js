@@ -1344,6 +1344,13 @@ test('Revenue Mission UI opens, adds and unlinks account opportunities from the 
   assert.match(ui,/action:'unlink_opportunity'/);assert.match(ui,/The account opportunity and all evidence will be preserved/);assert.match(ui,/api\('\/api\/opportunities'\)/);
 });
 
+test('Revenue Mission unlink handles account names containing apostrophes without breaking the click handler',async()=>{
+  const ui=await readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8'),modalCard={className:'',dataset:{},innerHTML:''},mission={id:'mission-one',name:'Test Mission',target_date:'2027-01-01',metrics:{opportunities:[{opportunity_id:'opportunity-one',account_name:"Love's Travel Stops",pipeline_stage:'IDENTIFIED',evidence_status:'REVIEW_REQUIRED',amount:0}]}};let confirmation='';
+  const elements={modalCard,modal:{classList:{add(){}}}},context=createContext({window:null,state:{auth:true,revenueMissions:[mission],workspaces:[]},document:{head:{appendChild(){}},createElement:()=>({}),getElementById:id=>elements[id]||null,querySelectorAll:()=>[]},$:id=>elements[id]||null,esc:value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char])),can:()=>true,confirm:value=>{confirmation=value;return false},toast:()=>{},api:async()=>({}),closeModal:()=>{},setTimeout:()=>0,Intl,Date,String,Number,Set,console});context.window=context;runInContext(ui,context);context.openRevenueMission(mission.id);
+  assert.match(modalCard.innerHTML,/Love&#039;s Travel Stops/);assert.match(modalCard.innerHTML,/unlinkRevenueMissionOpportunity\('mission-one','opportunity-one'\)/);assert.doesNotMatch(modalCard.innerHTML,/unlinkRevenueMissionOpportunity\([^)]*Love/);
+  await context.unlinkRevenueMissionOpportunity('mission-one','opportunity-one');assert.match(confirmation,/Unlink Love's Travel Stops/);
+});
+
 test('opportunity and weekly research recalculation refresh linked Revenue Missions without requiring the new schema',async()=>{
   const [opportunities,market,weekly,status]=await Promise.all([readFile(new URL('../api/opportunities.js',import.meta.url),'utf8'),readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8')]);
   for(const source of [opportunities,market]){assert.match(source,/refreshRevenueMissionsForOpportunities/);assert.match(source,/42P01/)}
