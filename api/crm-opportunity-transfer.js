@@ -42,9 +42,20 @@ export default async function handler(req,res){
     if(!tokenRows.length)return res.status(409).json({error:'Connect Launchpad36 CRM with an active CRM bridge token before sending opportunities'});
     const rows=await sql`
       select ow.*,ro.name account_name,ro.domain,
+        coalesce(account_plan.account_owner,'') account_owner,
         coalesce(buyer_summary.buyers,'[]'::json) buyers
       from opportunity_workspaces ow
       join retail_organizations ro on ro.id=ow.organization_id
+      left join lateral(
+        select ao.account_owner from tenant_account_overlays ao
+        where ao.manufacturer_id=${tenant.tenant_id} and ao.organization_id=ow.organization_id
+          and (${canSeeAllTenantData(tenant)} or ao.owner_user_id=${tenant.user_id}
+            or ao.visibility='tenant' or (ao.visibility='team' and ao.team_id=any(${tenant.team_ids||[]}::uuid[])))
+        order by case when ao.owner_user_id=${tenant.user_id} then 0
+          when ao.visibility='team' and ao.team_id=any(${tenant.team_ids||[]}::uuid[]) then 1
+          when ao.visibility='tenant' then 2 else 3 end,ao.updated_at desc,ao.id
+        limit 1
+      ) account_plan on true
       left join lateral(
         select coalesce(json_agg(json_build_object('id',b.id,'name',b.name,'title',b.title,'category',b.category,'email',b.email,'phone',b.phone) order by b.updated_at desc),'[]'::json) buyers
         from accounts a join buyers b on b.account_id=a.id where a.organization_id=ow.organization_id
