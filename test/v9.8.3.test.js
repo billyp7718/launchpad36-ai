@@ -973,6 +973,13 @@ test('saved buyer contact details are joined to account results without changing
   const buyerTool=await readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8');assert.match(buyerTool,/api\.openai\.com\/v1\/responses/);
 });
 
+test('Deep Buyer Search resolves buyers rendered from an opportunity workspace before calling the API',async()=>{
+  const ui=await readFile(new URL('../deep-buyer-search-ui-v3.js',import.meta.url),'utf8'),calls=[],toasts=[],buyer={id:'22222222-2222-4222-8222-222222222222',name:'Jane Buyer',title:'Audio Merchant',category_scope:'Audio'};
+  const context=createContext({window:null,state:{buyers:[],workspaces:[{buyers:[buyer]}],orgs:[{id:'11111111-1111-4111-8111-111111111111'}]},document:{head:{appendChild(){}},createElement:()=>({}),querySelector:()=>null},$:()=>null,esc:value=>String(value),toast:value=>toasts.push(value),confirm:()=>true,encodeURIComponent,JSON,String,Number,console,api:async(url,options={})=>{calls.push({url,body:options.body?JSON.parse(options.body):null});return url==='/api/buyer-deep-search'?{contact:{},category:{verification_status:'UNCONFIRMED'}}:{buyers:[buyer]}}});context.window=context;
+  runInContext(ui,context);await context.runDeepBuyerSearchV3('11111111-1111-4111-8111-111111111111',buyer.id,'deep-button');
+  assert.equal(calls[0].url,'/api/buyer-deep-search');assert.equal(calls[0].body.buyer_id,buyer.id);assert.match(toasts.at(-1),/Jane Buyer/);
+});
+
 test('market intelligence returns calculated results when workspace schema is missing',async()=>{
   const source=await readFile(new URL('../api/market-opportunity.js',import.meta.url),'utf8');
   assert.match(source,/error\?\.code==='42P01'/);assert.match(source,/persistence_status='SCHEMA_REQUIRED'/);assert.match(source,/scenario was calculated, but workspaces were not saved/);
