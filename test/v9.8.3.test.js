@@ -1054,10 +1054,10 @@ test('account information can be edited without replacing its organization id',a
   assert.match(apiSource,/req\.method==='PATCH'/);assert.match(apiSource,/where id=\$\{id\} and active=true returning \*/);assert.match(apiSource,/headquarters=\$\{/);
 });
 
-test('Account Universe exposes dedicated alcohol and beer distributor channel filters',async()=>{
+test('Account Universe exposes a dedicated Alcohol Distributors channel section',async()=>{
   const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  assert.match(ui,/<option value="alcohol_distributor">Alcohol Distributor<\/option>/);
-  assert.match(ui,/<option value="beer_distributor">Beer Distributor<\/option>/);
+  assert.match(ui,/<optgroup label="Alcohol Distribution"><option value="alcohol_distributor">Alcohol Distributors<\/option><\/optgroup>/);
+  assert.doesNotMatch(ui,/<option value="beer_distributor">/);
   assert.match(ui,/channel=\$\{ch\}/);
 });
 
