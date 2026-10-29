@@ -1057,10 +1057,17 @@ test('account information can be edited without replacing its organization id',a
 });
 
 test('Account Universe exposes a dedicated Alcohol Distributors channel section',async()=>{
-  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
-  assert.match(ui,/<optgroup label="Alcohol Distribution"><option value="alcohol_distributor">Alcohol Distributors<\/option><\/optgroup>/);
-  assert.doesNotMatch(ui,/<option value="beer_distributor">/);
-  assert.match(ui,/channel=\$\{ch\}/);
+  const [baseUi,runtimeUi,appShell]=await Promise.all([
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')
+  ]);
+  const alcoholSection=/<optgroup label="Alcohol Distribution"><option value="alcohol_distributor">Alcohol Distributors<\/option><\/optgroup>/;
+  assert.match(baseUi,alcoholSection);
+  assert.match(runtimeUi,alcoholSection);
+  assert.match(appShell,/\/executive-workflow-ui\.js/);
+  assert.doesNotMatch(runtimeUi,/<option value="beer_distributor">/);
+  assert.match(baseUi,/channel=\$\{ch\}/);
 });
 
 test('weekly retailer discovery retains only attributable candidates and deduplicates domains',()=>{
