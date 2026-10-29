@@ -283,13 +283,15 @@ test('Full Market Analysis PDF supports multi-account, multi-SKU, long and optio
   assert.equal(reportFilename('Café & Audio™','2026-09-27T12:00:00Z'),'Launchpad36_Full_Market_Analysis_Cafe_AudioTM_2026-09-27.pdf');
 });
 
-test('Full Market Analysis hides incomplete-status wording and omits retired methodology and evidence-source sections',async()=>{
+test('Full Market Analysis omits evidence presentation while retaining evidence data in the snapshot',async()=>{
   const [pdfSource,ui]=await Promise.all([readFile(new URL('../api/_market-report.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
   for(const value of ['Unconfirmed','INSUFFICIENT','INSUFFICIENT_EVIDENCE','Needs confirmation','Buyer category unconfirmed'])assert.equal(reportDisplayText(value), '');
   assert.equal(reportDisplayText('VERIFIED'),'VERIFIED');assert.equal(reportDisplayText('In-store and online'),'In-store and online');
-  assert.doesNotMatch(pdfSource,/w\.heading\('Market Opportunity and Methodology'\)|w\.heading\('Evidence, Confidence and Sources'\)|SOURCE','EVIDENCE STATUS/);
+  assert.doesNotMatch(pdfSource,/w\.heading\('Market Opportunity and Methodology'\)|w\.heading\('Evidence, Confidence and Sources'\)|EVIDENCE-BACKED|Evidence \/ confidence|Last verified|COMPETITOR \/ PRODUCT','PRICE','IN STORE','ONLINE','EVIDENCE|BUYER \/ TITLE','DEPARTMENT','CATEGORY SCOPE','ROLE','IDENTITY','CATEGORY/);
   const preview=ui.slice(ui.indexOf('function buildMarketReportHtml'),ui.indexOf('function marketReportBuyers'));
-  assert.doesNotMatch(preview,/Model Assumptions|Method & Limitations/);assert.match(preview,/reportDisplayValue\(x\.evidence_status\)/);assert.match(preview,/status\.online\?'Online':''/);
+  assert.doesNotMatch(preview,/Model Assumptions|Method & Limitations|Evidence-backed|>Evidence<|reportDisplayValue\(x\.evidence_status\)|verified assortment evidence|source-backed comparable offerings/);assert.match(preview,/status\.online\?'Online':''/);
+  const snapshotBuilder=ui.slice(ui.indexOf('function marketReportSnapshotPayload'),ui.indexOf('async function ensureMarketReportSnapshot'));
+  assert.match(snapshotBuilder,/evidence_status:x\.evidence_status/);assert.match(snapshotBuilder,/evidence_sources:x\.evidence_sources/);
 });
 
 test('PDF download and retained backend email infrastructure use saved snapshots and the shared generator',async()=>{
