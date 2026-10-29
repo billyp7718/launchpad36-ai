@@ -1056,6 +1056,13 @@ test('account information can be edited without replacing its organization id',a
   assert.match(apiSource,/req\.method==='PATCH'/);assert.match(apiSource,/where id=\$\{id\} and active=true returning \*/);assert.match(apiSource,/headquarters=\$\{/);
 });
 
+test('Account Universe exposes a dedicated Alcohol Distributors channel section',async()=>{
+  const ui=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(ui,/<optgroup label="Alcohol Distribution"><option value="alcohol_distributor">Alcohol Distributors<\/option><\/optgroup>/);
+  assert.doesNotMatch(ui,/<option value="beer_distributor">/);
+  assert.match(ui,/channel=\$\{ch\}/);
+});
+
 test('weekly retailer discovery retains only attributable candidates and deduplicates domains',()=>{
   const source='https://www.example-retailer.com/about';
   const payload={output:[{type:'web_search_call',action:{sources:[{url:source,title:'About Example Retailer'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({status:'FOUND',search_summary:'One candidate',retailers:[{name:'Example Retailer',official_domain:'example-retailer.com',organization_type:'retailer',channels:['specialty retail'],categories:['Consumer Electronics'],coverage:'National',region:'US',headquarters:'Austin, Texas',footprint:40,ecommerce:true,source_url:source,source_title:'About',evidence_quote:'Specialty consumer electronics retailer',confidence:82},{name:'Duplicate Banner',official_domain:'example-retailer.com',organization_type:'retailer',channels:[],categories:[],coverage:'',region:'',headquarters:'',footprint:0,ecommerce:true,source_url:source,source_title:'About',evidence_quote:'Retailer',confidence:60}]})}]}]};
