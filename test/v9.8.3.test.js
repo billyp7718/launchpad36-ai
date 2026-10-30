@@ -1180,7 +1180,8 @@ test('account assortment volume uses editable SKU prices to calculate annual rev
     readFile(new URL('../api/_market-report.js',import.meta.url),'utf8')
   ]);
   for(const marker of ['Monthly Units / Store','Online Sales Monthly Forecast','Store / location count','Retail Price','Wholesale Price','Annual Revenue','assortmentMonthly','assortmentOnlineMonthly','assortmentRetail','assortmentDealer','Editable retail','Editable wholesale'])assert.match(ui,new RegExp(marker,'i'));
-  assert.match(ui,/Store units × stores \+ online units/i);
+  assert.match(ui,/Store units × stores \+ e-commerce units/i);
+  for(const marker of ['E-commerce monthly unit opportunity','assortmentEcommerceHtml','assortmentEcommerceTotal','never multiplied by store count','E-commerce units are entered by SKU and added once per month'])assert.match(ui,new RegExp(marker,'i'));
   assert.match(apiSource,/pv\.wholesale/);assert.match(apiSource,/pv\.msrp/);assert.match(apiSource,/pv\.map/);
   for(const marker of ['monthly_sales_volume','online_monthly_sales_forecast','dealer_cost','retail_price','annual_revenue','account_sku_store_and_online_monthly_units_x_dealer_cost'])assert.match(apiSource,new RegExp(marker));
   assert.match(apiSource,/modeled_contribution:dealerCost/);
@@ -1188,6 +1189,7 @@ test('account assortment volume uses editable SKU prices to calculate annual rev
   assert.equal(calculateSkuAnnualRevenue({dealer_cost:40,monthly_sales_volume:0,store_count:10}),0);
   assert.equal(calculateSkuAnnualRevenue({dealer_cost:40,monthly_sales_volume:5,online_monthly_sales_forecast:25,store_count:10}),36000);
   assert.equal(calculateSkuAnnualRevenue({dealer_cost:40,online_monthly_sales_forecast:25,store_count:10}),12000);
+  assert.equal(calculateSkuAnnualRevenue({dealer_cost:40,online_monthly_sales_forecast:25,store_count:999}),12000);
   assert.match(apiSource,/calculateSkuAnnualRevenue/);
   assert.match(reportSource,/online_monthly_sales_forecast/);assert.match(reportSource,/MONTHLY UNITS/);
 });
