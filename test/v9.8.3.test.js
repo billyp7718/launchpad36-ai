@@ -14,7 +14,7 @@ import { applyAccountScope, calculateMarketOpportunity, calculateMultiRouteMarke
 import { buyerProfiles, evidenceProfiles } from '../api/_account-fit.js';
 import { domainFromWebsite, normalizePublicUrl } from '../api/_url.js';
 import { buyerCategorySearchTerms, normalizeOpenAIProducts, normalizeOpenAIResearch, normalizeOpenAIRetailers, responseOutputText, responseWebSources, searchOpenAIBuyers } from '../api/_openai-research.js';
-import { detectBuyerRelationshipChange, relationshipDisposition } from '../api/_buyer-relationships.js';
+import { appendBuyerRelationship, detectBuyerRelationshipChange, relationshipDisposition } from '../api/_buyer-relationships.js';
 import { discoveredUrls } from '../api/_acquisition.js';
 import { RETAIL_DISTRIBUTORS } from '../api/retail-distributor-seed.js';
 import { reportRecipients } from '../api/market-report-email.js';
@@ -649,6 +649,16 @@ test('buyer relationship migration is additive, append-only and revalidation-rea
   assert.doesNotMatch(migration,/drop\s+(table|column)|truncate\s+|delete\s+from\s+(buyers|accounts|retail_organizations)/i);
 });
 
+test('deep buyer search appends relationship history with valid PostgreSQL syntax',async()=>{
+  let statement='';
+  const sql=(strings,...values)=>{statement=strings.reduce((text,part,index)=>text+part+(index<values.length?'?':''),'');return Promise.resolve([{id:'relationship-1'}])};
+  sql.json=value=>value;
+  const result=await appendBuyerRelationship(sql,{buyer:{id:'buyer-1'},account_id:'account-1',observation:{department:'Consumer Electronics',category_scope:'Audio',subcategory_scope:'Speakers',buyer_role:'DIRECT_BUYER',identity_confidence:92,category_confidence:88,employment_evidence_url:'https://retailer.example/team',category_evidence_url:'https://trade.example/audio',evidence_date:'2026-11-01T00:00:00.000Z'},disposition:{employment_verification_status:'VERIFIED',category_verification_status:'VERIFIED',change_type:'REVERIFIED'}});
+  assert.equal(result.id,'relationship-1');
+  assert.match(statement,/values\([^;]+\) returning \*/i);
+  assert.doesNotMatch(statement,/\? returning \*/i);
+});
+
 test('buyer relationship changes preserve verified scope and initiate replacement research',()=>{
   const previous={id:'buyer-1',title:'Senior Buyer',department:'Consumer Electronics',category_scope:'Audio',category_verification_status:'VERIFIED'};
   assert.equal(detectBuyerRelationshipChange(previous,{...previous,employment_verification_status:'STALE'}),'BUYER_LEFT_ACCOUNT');
@@ -994,11 +1004,11 @@ test('saved buyer contact details are joined to account results without changing
   const buyerTool=await readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8');assert.match(buyerTool,/api\.openai\.com\/v1\/responses/);
 });
 
-test('Deep Buyer Search resolves buyers rendered from an opportunity workspace before calling the API',async()=>{
+test('Deep Buyer Search resolves opportunity buyers and displays returned contact and category details',async()=>{
   const ui=await readFile(new URL('../deep-buyer-search-ui-v3.js',import.meta.url),'utf8'),calls=[],toasts=[],buyer={id:'22222222-2222-4222-8222-222222222222',name:'Jane Buyer',title:'Audio Merchant',category_scope:'Audio'};
-  const context=createContext({window:null,state:{buyers:[],workspaces:[{buyers:[buyer]}],orgs:[{id:'11111111-1111-4111-8111-111111111111'}]},document:{head:{appendChild(){}},createElement:()=>({}),querySelector:()=>null},$:()=>null,esc:value=>String(value),toast:value=>toasts.push(value),confirm:()=>true,encodeURIComponent,JSON,String,Number,console,api:async(url,options={})=>{calls.push({url,body:options.body?JSON.parse(options.body):null});return url==='/api/buyer-deep-search'?{contact:{},category:{verification_status:'UNCONFIRMED'}}:{buyers:[buyer]}}});context.window=context;
+  const context=createContext({window:null,state:{buyers:[],workspaces:[{buyers:[buyer]}],orgs:[{id:'11111111-1111-4111-8111-111111111111'}]},document:{head:{appendChild(){}},createElement:()=>({}),querySelector:()=>null},$:()=>null,esc:value=>String(value),toast:value=>toasts.push(value),confirm:()=>true,encodeURIComponent,JSON,String,Number,console,api:async(url,options={})=>{calls.push({url,body:options.body?JSON.parse(options.body):null});return url==='/api/buyer-deep-search'?{contact:{email:'jane@retailer.example',email_status:'VERIFIED',phone:'212-555-0100',phone_status:'VERIFIED_DIRECT_WORK'},category:{department:'Consumer Electronics',category_scope:'Audio',confidence:91,verification_status:'VERIFIED'}}:{buyers:[buyer]}}});context.window=context;
   runInContext(ui,context);await context.runDeepBuyerSearchV3('11111111-1111-4111-8111-111111111111',buyer.id,'deep-button');
-  assert.equal(calls[0].url,'/api/buyer-deep-search');assert.equal(calls[0].body.buyer_id,buyer.id);assert.match(toasts.at(-1),/Jane Buyer/);
+  assert.equal(calls[0].url,'/api/buyer-deep-search');assert.equal(calls[0].body.buyer_id,buyer.id);assert.match(toasts.at(-1),/Jane Buyer/);assert.match(toasts.at(-1),/Consumer Electronics/);assert.match(toasts.at(-1),/Category: Audio/);assert.match(toasts.at(-1),/jane@retailer\.example/);assert.match(toasts.at(-1),/212-555-0100/);
 });
 
 test('market intelligence returns calculated results when workspace schema is missing',async()=>{
