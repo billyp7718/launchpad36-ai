@@ -1,6 +1,7 @@
 import { db } from './_db.js';
 import { requireAdmin } from './_auth.js';
 import { BUYER_INTELLIGENCE_IMPORT_SQL } from './db-init-buyer-intelligence-import.js';
+import { BUYER_RESEARCH_RUNNER_SQL } from './db-init-buyer-research-runner.js';
 
 export const SQL=`
 create table if not exists manufacturer_members (
@@ -143,7 +144,6 @@ create table if not exists intelligence_change_events (
  source_url text not null, observed_at timestamptz not null, detected_at timestamptz not null default now(),
  meaningful boolean not null default true, verification_status text not null default 'REVIEW_REQUIRED'
 );
-drop trigger if exists intelligence_change_events_immutable on intelligence_change_events;
 alter table intelligence_change_events add column if not exists account_id uuid references accounts(id) on delete cascade;
 alter table intelligence_change_events add column if not exists organization_id uuid references retail_organizations(id) on delete cascade;
 update intelligence_change_events ice set account_id=coalesce(ice.account_id,ce.account_id),organization_id=coalesce(ice.organization_id,ce.organization_id) from commercial_evidence ce where ce.id=ice.current_evidence_id and (ice.account_id is null or ice.organization_id is null);
@@ -311,14 +311,21 @@ create index if not exists sell_in_scenarios_scope_idx on sell_in_scenarios(manu
 
 create or replace function prevent_l36_immutable_mutation() returns trigger language plpgsql as $$
 begin raise exception '% is immutable; append a new record instead',tg_table_name; end $$;
-drop trigger if exists commercial_evidence_immutable on commercial_evidence;
-create trigger commercial_evidence_immutable before update or delete on commercial_evidence for each row execute function prevent_l36_immutable_mutation();
-drop trigger if exists intelligence_change_events_immutable on intelligence_change_events;
-create trigger intelligence_change_events_immutable before update or delete on intelligence_change_events for each row execute function prevent_l36_immutable_mutation();
-drop trigger if exists buyer_category_relationships_immutable on buyer_category_relationships;
-create trigger buyer_category_relationships_immutable before update or delete on buyer_category_relationships for each row execute function prevent_l36_immutable_mutation();
-drop trigger if exists permission_audit_events_immutable on permission_audit_events;
-create trigger permission_audit_events_immutable before update or delete on permission_audit_events for each row execute function prevent_l36_immutable_mutation();
+do $$ begin
+ if not exists(select 1 from pg_trigger where tgname='commercial_evidence_immutable') then
+  create trigger commercial_evidence_immutable before update or delete on commercial_evidence for each row execute function prevent_l36_immutable_mutation();
+ end if;
+ if not exists(select 1 from pg_trigger where tgname='intelligence_change_events_immutable') then
+  create trigger intelligence_change_events_immutable before update or delete on intelligence_change_events for each row execute function prevent_l36_immutable_mutation();
+ end if;
+ if not exists(select 1 from pg_trigger where tgname='buyer_category_relationships_immutable') then
+  create trigger buyer_category_relationships_immutable before update or delete on buyer_category_relationships for each row execute function prevent_l36_immutable_mutation();
+ end if;
+ if not exists(select 1 from pg_trigger where tgname='permission_audit_events_immutable') then
+  create trigger permission_audit_events_immutable before update or delete on permission_audit_events for each row execute function prevent_l36_immutable_mutation();
+ end if;
+end $$;
 ${BUYER_INTELLIGENCE_IMPORT_SQL}
+${BUYER_RESEARCH_RUNNER_SQL}
 `;
-export default async function handler(req,res){if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});if(!requireAdmin(req,res))return;try{const sql=db();await sql.unsafe(SQL);return res.status(200).json({initialized:true,version:'9.8.3',architecture:'multi_tenant_living_retail_intelligence'})}catch(e){return res.status(500).json({error:e.message})}}
+export default async function handler(req,res){if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});if(!requireAdmin(req,res))return;try{const sql=db();await sql.unsafe(SQL);return res.status(200).json({initialized:true,version:'9.8.4',architecture:'multi_tenant_living_retail_intelligence'})}catch(e){return res.status(500).json({error:e.message})}}

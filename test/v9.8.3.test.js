@@ -1175,7 +1175,7 @@ test('retailer discovery, opportunity alerts and buyer reporting use the schedul
   const [agent,weekly,living,ui,status,config]=await Promise.all([readFile(new URL('../api/retailer-discovery-agent.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../api/living-intelligence-refresh.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../vercel.json',import.meta.url),'utf8')]);
   assert.match(agent,/searchOpenAIRetailers/);assert.match(agent,/DISCOVERY_CANDIDATE/);assert.match(agent,/runLivingIntelligencePipeline/);assert.match(agent,/where active=true and \(lower\(regexp_replace\(domain/);
   assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(living,/runOpportunityAlertRefresh/);assert.match(ui,/Discover New Retailers/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
-  const crons=JSON.parse(config).crons;assert.equal(crons.length,3);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-intelligence-weekly-report'&&x.schedule==='0 13,14 * * 1'));
+  const crons=JSON.parse(config).crons;assert.equal(crons.length,4);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-intelligence-weekly-report'&&x.schedule==='0 13,14 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-research-runner-tick'&&x.schedule==='* * * * *'));
 });
 
 test('account research modal keeps product research visible across screen sizes',async()=>{

@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import { db } from './_db.js';
 import { resolveTenant } from './_tenant.js';
-import { CAPABILITIES, hasCapability } from './_permissions.js';
+import { CAPABILITIES, canonicalRole, hasCapability } from './_permissions.js';
+import { appendPermissionAudit } from './_permission-audit.js';
 import { appendBuyerRelationship, relationshipDisposition } from './_buyer-relationships.js';
 import { runLivingIntelligencePipeline } from './_living-intelligence.js';
 import { authoritativeCategory, authoritativeIdentity, buyerImportPayloadHash, buyerImportRecordKey, importCounts, normalizeBuyerImportRecord, planBuyerImport } from './_buyer-intelligence-ingest.js';
@@ -112,7 +113,18 @@ export default async function handler(req,res){
     if(records.length>250)return res.status(413).json({error:'A maximum of 250 buyer records is allowed per import'});
     if(mode==='COMMIT'&&records.length>1&&!previewRunId)return res.status(409).json({error:'Bulk buyer imports require a preview_run_id from a successful dry run'});
     let preview=null,planned=[];
-    if(previewRunId){preview=(await sql`select * from buyer_intelligence_import_runs where id=${previewRunId} and manufacturer_id=${tenant.tenant_id} and mode='PREVIEW' and status='PREVIEW_READY' limit 1`)[0];if(!preview)return res.status(404).json({error:'The requested buyer intelligence preview was not found'});const rows=await sql`select * from buyer_intelligence_import_items where run_id=${preview.id} order by id`;planned=rows.map(row=>({...row,record:row.proposed_value}));records=planned.map(item=>item.record)}
+    if(previewRunId){
+      preview=(await sql`select * from buyer_intelligence_import_runs where id=${previewRunId} and manufacturer_id=${tenant.tenant_id} and mode='PREVIEW' and status='PREVIEW_READY' limit 1`)[0];if(!preview)return res.status(404).json({error:'The requested buyer intelligence preview was not found'});
+      if(mode==='COMMIT'){
+        const runnerTable=(await sql`select to_regclass('public.buyer_research_preview_batches') name`)[0]?.name;
+        const runnerBatch=runnerTable?(await sql`select id from buyer_research_preview_batches where manufacturer_id=${tenant.tenant_id} and import_run_id=${preview.id} limit 1`)[0]:null;
+        if(runnerBatch&&canonicalRole(tenant.role)!=='ADMIN'){
+          await appendPermissionAudit({sql,req,tenant,action_type:'BUYER_RESEARCH_PREVIEW_COMMIT',result:'DENIED',reason:'Large-scale buyer research previews require Administrator approval',new_value:{preview_run_id:preview.id}}).catch(()=>{});
+          return res.status(403).json({error:'Administrator approval is required to commit a buyer research preview',code:'FORBIDDEN'});
+        }
+      }
+      const rows=await sql`select * from buyer_intelligence_import_items where run_id=${preview.id} order by id`;planned=rows.map(row=>({...row,record:row.proposed_value}));records=planned.map(item=>item.record);
+    }
     if(!records.length)return res.status(400).json({error:'At least one buyer record is required'});
     const normalized=records.map(normalizeBuyerImportRecord),payloadHash=buyerImportPayloadHash(normalized),existingRun=(await sql`select * from buyer_intelligence_import_runs where manufacturer_id=${tenant.tenant_id} and idempotency_key=${idempotencyKey} and mode=${mode} limit 1`)[0];attempt.payload_hash=payloadHash;
     if(existingRun){const items=await sql`select * from buyer_intelligence_import_items where run_id=${existingRun.id} order by id`;return res.status(200).json({...runResult(existingRun,items),idempotent_replay:true})}
