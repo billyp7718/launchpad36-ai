@@ -44,9 +44,10 @@ export default async function handler(req,res){
     }else if(action==='update_settings'){
       if(tenant.source!=='admin_bearer'&&canonicalRole(tenant.role)!==ROLES.ADMIN)throw Object.assign(new Error('Administrator permission is required to change bulk research cost controls'),{statusCode:403});
       result={settings:await updateBuyerResearchSettings({manufacturerId:tenant.tenant_id,userId:tenant.user_id,zeroPaidApiMode:req.body?.zero_paid_api_mode!==false,maxPublicPagesPerAccount:req.body?.max_public_pages_per_account,minIntervalSeconds:req.body?.min_interval_seconds,automaticRefreshEnabled:req.body?.automatic_refresh_enabled===true,refreshIntervalDays:req.body?.refresh_interval_days},{sql})};
-    }else if(action==='prepare_preview'){
+    }else if(action==='prepare_preview'||action==='prepare_verified_preview'){
       const jobId=clean(req.body?.job_id,80);if(jobId&&!UUID.test(jobId))return res.status(400).json({error:'job_id must be a valid UUID'});
-      result=await createNextBuyerResearchPreview({manufacturerId:tenant.tenant_id,jobId:jobId||null,req},{sql});
+      if(action==='prepare_verified_preview'&&tenant.source!=='admin_bearer'&&canonicalRole(tenant.role)!==ROLES.ADMIN)throw Object.assign(new Error('Administrator permission is required to preview verified paid-run candidates'),{statusCode:403});
+      result=await createNextBuyerResearchPreview({manufacturerId:tenant.tenant_id,jobId:jobId||null,req,verifiedOnly:action==='prepare_verified_preview',allowPaused:action==='prepare_verified_preview'},{sql});
     }else if(['pause','resume','cancel'].includes(action)){
       const jobId=clean(req.body?.job_id,80);if(!UUID.test(jobId))return res.status(400).json({error:'A valid job_id is required'});
       result={job:await changeBuyerResearchJob({manufacturerId:tenant.tenant_id,jobId,action,req},{sql})};
