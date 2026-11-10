@@ -24,7 +24,7 @@ create table if not exists buyer_research_jobs(
  duplicate_candidates integer not null default 0, preview_batches integer not null default 0,
  research_mode text not null default 'ZERO_PAID_API', public_pages_fetched integer not null default 0,
  robots_blocked_accounts integer not null default 0, external_api_cost_cents integer not null default 0,
- zero_paid_runs integer not null default 0,
+ zero_paid_runs integer not null default 0, zero_paid_authorized boolean not null default false,
  provider_call_budget integer not null default 550, provider_calls_used integer not null default 0,
  max_attempts integer not null default 2, min_interval_seconds integer not null default 60, max_concurrency integer not null default 1,
  requested_by_user_id uuid references manufacturer_members(id) on delete set null, request_id text not null default '',
@@ -40,6 +40,7 @@ alter table buyer_research_jobs add column if not exists public_pages_fetched in
 alter table buyer_research_jobs add column if not exists robots_blocked_accounts integer not null default 0;
 alter table buyer_research_jobs add column if not exists external_api_cost_cents integer not null default 0;
 alter table buyer_research_jobs add column if not exists zero_paid_runs integer not null default 0;
+alter table buyer_research_jobs add column if not exists zero_paid_authorized boolean not null default false;
 create index if not exists buyer_research_jobs_tenant_time_idx on buyer_research_jobs(manufacturer_id,created_at desc);
 create index if not exists buyer_research_jobs_work_idx on buyer_research_jobs(status,next_run_at,created_at);
 create unique index if not exists buyer_research_jobs_one_active_uq on buyer_research_jobs(manufacturer_id) where status in('QUEUED','RUNNING','PAUSED','CANCEL_REQUESTED','PREVIEWING');

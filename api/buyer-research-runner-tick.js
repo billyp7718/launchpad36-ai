@@ -11,6 +11,7 @@ async function ensureResearchSchema(sql){
     ['buyer_research_settings','refresh_interval_days'],
     ['buyer_research_jobs','research_mode'],
     ['buyer_research_jobs','zero_paid_runs'],
+    ['buyer_research_jobs','zero_paid_authorized'],
     ['buyer_research_job_accounts','research_method'],
     ['buyer_research_job_accounts','robots_status'],
     ['buyer_research_candidates','research_method'],
