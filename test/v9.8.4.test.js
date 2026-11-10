@@ -118,6 +118,13 @@ test('Vercel schedules bounded research ticks and grants adequate function durat
   assert.ok(config.crons.some(item=>item.path==='/api/buyer-research-runner-tick'&&item.schedule==='* * * * *'));
 });
 
+test('bulk research defaults fail-closed before any paid provider call',()=>{
+  const tick=read('api/buyer-research-runner-tick.js');
+  assert.match(tick,/BUYER_RESEARCH_ZERO_PAID_MODE\|\|'true'/);
+  assert.match(tick,/ZERO_PAID_MODE_PAUSED/);
+  assert.ok(tick.indexOf('ZERO_PAID_MODE_PAUSED')<tick.indexOf('research=await processNextBuyerResearchAccount'));
+});
+
 test('main migration and readiness include all V9.8.4 staging tables',()=>{
   const migration=read('api/db-init-v9-8.js'),status=read('api/system-status.js');
   assert.match(migration,/BUYER_RESEARCH_RUNNER_SQL/);

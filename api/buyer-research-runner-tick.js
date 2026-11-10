@@ -7,6 +7,9 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 export default async function handler(req,res){
   if(!['GET','POST'].includes(req.method))return res.status(405).json({error:'Method not allowed'});
   if(!requireInternal(req,res))return;
+  if(String(process.env.BUYER_RESEARCH_ZERO_PAID_MODE||'true').toLowerCase()!=='false'){
+    return res.status(200).json({status:'ZERO_PAID_MODE_PAUSED',message:'Paid-provider bulk research is disabled while the zero-paid research worker is deployed.'});
+  }
   const manufacturerId=String(process.env.BUYER_INTELLIGENCE_SERVICE_TENANT_ID||'').trim();
   if(!UUID.test(manufacturerId))return res.status(503).json({error:'Buyer intelligence service tenant is not configured'});
   try{
