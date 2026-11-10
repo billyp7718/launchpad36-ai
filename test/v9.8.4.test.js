@@ -99,11 +99,16 @@ test('runner APIs enforce buyer intelligence administration and audit denied ope
 });
 
 test('runner preview commits require Administrator approval and retain existing safe import workflow',()=>{
-  const source=read('api/buyer-intelligence-import.js');
+  const source=read('api/buyer-intelligence-import.js'),runner=read('api/_buyer-research-runner.js'),route=read('api/buyer-research-runner.js'),ui=read('buyer-intelligence-updates-ui.js');
   assert.match(source,/buyer_research_preview_batches/);
   assert.match(source,/canonicalRole\(tenant\.role\)!=='ADMIN'/);
   assert.match(source,/Administrator approval is required to commit a buyer research preview/);
   assert.match(source,/preview_run_id/);
+  assert.match(runner,/classification='NEW_VERIFIED_BUYER'/);
+  assert.match(runner,/allowPaused\?\['PAUSED'\]/);
+  assert.match(route,/prepare_verified_preview/);
+  assert.match(route,/Administrator permission is required to preview verified paid-run candidates/);
+  assert.match(ui,/Preview .* Verified Candidates/);
 });
 
 test('Buyer Intelligence Updates exposes progress, failures, preview review, and explicit approval',()=>{
