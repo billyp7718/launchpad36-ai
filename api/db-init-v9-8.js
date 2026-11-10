@@ -1,5 +1,6 @@
 import { db } from './_db.js';
 import { requireAdmin } from './_auth.js';
+import { BUYER_INTELLIGENCE_IMPORT_SQL } from './db-init-buyer-intelligence-import.js';
 
 export const SQL=`
 create table if not exists manufacturer_members (
@@ -318,5 +319,6 @@ drop trigger if exists buyer_category_relationships_immutable on buyer_category_
 create trigger buyer_category_relationships_immutable before update or delete on buyer_category_relationships for each row execute function prevent_l36_immutable_mutation();
 drop trigger if exists permission_audit_events_immutable on permission_audit_events;
 create trigger permission_audit_events_immutable before update or delete on permission_audit_events for each row execute function prevent_l36_immutable_mutation();
+${BUYER_INTELLIGENCE_IMPORT_SQL}
 `;
 export default async function handler(req,res){if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});if(!requireAdmin(req,res))return;try{const sql=db();await sql.unsafe(SQL);return res.status(200).json({initialized:true,version:'9.8.3',architecture:'multi_tenant_living_retail_intelligence'})}catch(e){return res.status(500).json({error:e.message})}}
