@@ -37,6 +37,7 @@ import { launchpadCrmOpportunityPayload, launchpadCrmSignatureMessage, launchpad
 import { authoritativeCategory, authoritativeIdentity, buyerImportRecordKey, importCounts, normalizeBuyerImportRecord, planBuyerImport } from '../api/_buyer-intelligence-ingest.js';
 import { BUYER_INTELLIGENCE_IMPORT_SQL } from '../api/db-init-buyer-intelligence-import.js';
 import { easternScheduleParts, isMondayNineEastern, weeklyBuyerReportHtml } from '../api/buyer-intelligence-weekly-report.js';
+import { buyerReportDeliveryConfig } from '../api/_buyer-report-delivery.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -115,12 +116,24 @@ test('Buyer Intelligence Updates UI previews the exact import before commit',asy
   assert.match(ui,/BUYER_INTELLIGENCE_ADMIN/);assert.match(shell,/buyer-intelligence-updates-ui\.js/);
 });
 
+test('weekly buyer intelligence report supports external delivery without requiring a site email provider',()=>{
+  const external=buyerReportDeliveryConfig({});
+  assert.equal(external.mode,'external');assert.equal(external.enabled,false);assert.equal(external.configured,true);assert.deepEqual(external.missing,[]);
+  const explicitExternal=buyerReportDeliveryConfig({BUYER_INTELLIGENCE_EMAIL_DELIVERY_MODE:'external',RESEND_API_KEY:'present',REPORT_FROM_EMAIL:'reports@example.test'});
+  assert.equal(explicitExternal.mode,'external');assert.equal(explicitExternal.enabled,false);assert.equal(explicitExternal.configured,true);
+  const incompleteSite=buyerReportDeliveryConfig({BUYER_INTELLIGENCE_EMAIL_DELIVERY_MODE:'site'});
+  assert.equal(incompleteSite.mode,'site');assert.equal(incompleteSite.enabled,true);assert.equal(incompleteSite.configured,false);assert.ok(incompleteSite.missing.includes('RESEND_API_KEY'));
+  const configuredSite=buyerReportDeliveryConfig({BUYER_INTELLIGENCE_EMAIL_DELIVERY_MODE:'site',CRON_SECRET:'present',RESEND_API_KEY:'present',REPORT_FROM_EMAIL:'reports@example.test',BUYER_INTELLIGENCE_SERVICE_TENANT_ID:'tenant'});
+  assert.equal(configuredSite.mode,'site');assert.equal(configuredSite.configured,true);assert.deepEqual(configuredSite.missing,[]);
+});
+
 test('weekly buyer intelligence report is Eastern-time gated, idempotent and source attributable',async()=>{
   const source=await readFile(new URL('../api/buyer-intelligence-weekly-report.js',import.meta.url),'utf8'),config=JSON.parse(await readFile(new URL('../vercel.json',import.meta.url),'utf8'));
   assert.equal(isMondayNineEastern(new Date('2026-11-09T14:00:00Z')),true);assert.equal(isMondayNineEastern(new Date('2026-11-09T13:00:00Z')),false);assert.equal(easternScheduleParts(new Date('2026-07-06T13:00:00Z')).hour,9);
   const report=weeklyBuyerReportHtml({tenant:{name:'Example Manufacturer'},periodStart:new Date('2026-11-02T14:00:00Z'),periodEnd:new Date('2026-11-09T14:00:00Z'),summary:{newly_verified:2,updated:1,flagged:3,duplicates_prevented:4},events:[{action_type:'ADD_BUYER',result:'SUCCESS',source_url:'https://retailer.example/source',new_value:{account_name:'Retailer',name:'Jane Buyer',title:'Category Manager',category_scope:'Audio',last_verified_at:'2026-11-09'}}],failedRuns:[],missingCategoryBuyers:5});
   for(const marker of ['Newly verified','Updated / changed','Needs verification','Duplicates prevented','Missing category buyers','retailer.example/source'])assert.match(report,new RegExp(marker));
   for(const marker of ['RESEND_API_KEY','REPORT_FROM_EMAIL','BUYER_INTELLIGENCE_REPORT_TO','BUYER_INTELLIGENCE_REPORT_TENANT_ID','Billp@launchpad36.com','Idempotency-Key','buyer_intelligence_report_deliveries','requireInternal'])assert.match(source,new RegExp(marker));
+  assert.match(source,/SKIPPED_EXTERNAL_DELIVERY/);
   assert.match(source,/select id,name from manufacturers where id=\$\{reportTenant\} limit 1/);assert.doesNotMatch(source,/select id,name from manufacturers order by created_at/);
   assert.ok(config.crons.some(item=>item.path==='/api/buyer-intelligence-weekly-report'&&item.schedule==='0 13,14 * * 1'));
 });
