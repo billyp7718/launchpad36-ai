@@ -56,10 +56,14 @@ create index if not exists buyer_intelligence_report_tenant_time_idx on buyer_in
 
 create or replace function prevent_l36_immutable_mutation() returns trigger language plpgsql as $$
 begin raise exception '% is immutable; append a new record instead',tg_table_name; end $$;
-drop trigger if exists buyer_intelligence_import_items_immutable on buyer_intelligence_import_items;
-create trigger buyer_intelligence_import_items_immutable before update or delete on buyer_intelligence_import_items for each row execute function prevent_l36_immutable_mutation();
-drop trigger if exists buyer_intelligence_audit_events_immutable on buyer_intelligence_audit_events;
-create trigger buyer_intelligence_audit_events_immutable before update or delete on buyer_intelligence_audit_events for each row execute function prevent_l36_immutable_mutation();
+do $$ begin
+ if not exists(select 1 from pg_trigger where tgname='buyer_intelligence_import_items_immutable') then
+  create trigger buyer_intelligence_import_items_immutable before update or delete on buyer_intelligence_import_items for each row execute function prevent_l36_immutable_mutation();
+ end if;
+ if not exists(select 1 from pg_trigger where tgname='buyer_intelligence_audit_events_immutable') then
+  create trigger buyer_intelligence_audit_events_immutable before update or delete on buyer_intelligence_audit_events for each row execute function prevent_l36_immutable_mutation();
+ end if;
+end $$;
 `;
 
 export default async function handler(req,res){

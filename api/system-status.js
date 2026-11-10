@@ -31,7 +31,13 @@ const REQUIRED_TABLES = [
   'buyer_intelligence_import_items',
   'buyer_intelligence_audit_events',
   'buyer_intelligence_rate_limits',
-  'buyer_intelligence_report_deliveries'
+  'buyer_intelligence_report_deliveries',
+  'buyer_research_jobs',
+  'buyer_research_job_accounts',
+  'buyer_research_candidates',
+  'buyer_research_events',
+  'buyer_research_preview_batches',
+  'buyer_research_preview_items'
 ];
 
 function component(name, status, detail, extra = {}) {
@@ -50,7 +56,7 @@ export default async function handler(req, res) {
   if (!await resolveInternalTenant(req, res)) return;
 
   const components = [];
-  const version = process.env.npm_package_version || '9.8.3';
+  const version = process.env.npm_package_version || '9.8.4';
   const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'local/unknown';
   components.push(component('Application', 'WORKING', `Version ${version}`, { commit }));
 
@@ -86,7 +92,7 @@ export default async function handler(req, res) {
     components.push(component(
       'Schema',
       missing.length ? 'FAILED' : 'WORKING',
-      missing.length ? `Missing ${missing.length} required table(s)` : 'All required V9.8.3 tables are present',
+      missing.length ? `Missing ${missing.length} required table(s)` : 'All required V9.8.4 tables are present',
       { present: REQUIRED_TABLES.filter(table => present.has(table)), missing }
     ));
 
@@ -131,6 +137,20 @@ export default async function handler(req, res) {
       buyerReport.configured?'CONFIGURED':'NOT_CONFIGURED',
       buyerReport.detail,
       {delivery_mode:buyerReport.mode,schedule:buyerReport.enabled?'Mondays at 9:00 AM America/New_York':'External',recipient_configured:buyerReport.enabled&&Boolean(process.env.BUYER_INTELLIGENCE_REPORT_TO||'Billp@launchpad36.com'),missing:buyerReport.missing}
+    ));
+
+    const researchTables=['buyer_research_jobs','buyer_research_job_accounts','buyer_research_candidates','buyer_research_events','buyer_research_preview_batches','buyer_research_preview_items'];
+    const researchSchemaReady=researchTables.every(table=>present.has(table));
+    let latestResearch=null;
+    if(researchSchemaReady){
+      const rows=await sql`select id,status,requested_accounts,accounts_completed,candidates_found,verified_candidates,duplicate_candidates,conflicting_candidates,preview_batches,checkpoint_at,created_at from buyer_research_jobs order by created_at desc limit 1`;
+      latestResearch=rows[0]||null;
+    }
+    components.push(component(
+      'Buyer Research Runner',
+      !researchSchemaReady?'FAILED':!openaiConfigured?'NOT_CONFIGURED':latestResearch?.status==='FAILED'?'DEGRADED':latestResearch?'WORKING':'CONFIGURED',
+      !researchSchemaReady?'Buyer research staging schema is incomplete':!openaiConfigured?'OPENAI_API_KEY is required':latestResearch?`Latest job: ${latestResearch.status}; ${latestResearch.accounts_completed || 0}/${latestResearch.requested_accounts || 0} accounts checkpointed`:'Non-mutating resumable research is configured and awaiting an administrator start',
+      {latest_job:latestResearch,preview_only:true,direct_buyer_mutation:false}
     ));
 
     let targetCount = 0;
