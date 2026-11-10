@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { db } from './_db.js';
 import { requireInternal } from './_auth.js';
+import { buyerReportDeliveryConfig } from './_buyer-report-delivery.js';
 
 const EMAIL=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -22,6 +23,8 @@ export function weeklyBuyerReportHtml({tenant,periodStart,periodEnd,summary={},e
 export default async function handler(req,res){
   if(req.method!=='GET'&&req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
   if(!requireInternal(req,res))return;
+  const delivery=buyerReportDeliveryConfig();
+  if(!delivery.enabled)return res.status(200).json({status:'SKIPPED_EXTERNAL_DELIVERY',delivery_mode:delivery.mode});
   const force=String(req.query?.force||req.body?.force||'')==='1';if(!force&&!isMondayNineEastern())return res.status(200).json({status:'SKIPPED_OUTSIDE_EASTERN_WINDOW'});
   const apiKey=process.env.RESEND_API_KEY||'',from=process.env.REPORT_FROM_EMAIL||'',recipient=clean(process.env.BUYER_INTELLIGENCE_REPORT_TO||'Billp@launchpad36.com',200).toLowerCase(),reportTenant=clean(process.env.BUYER_INTELLIGENCE_REPORT_TENANT_ID||process.env.BUYER_INTELLIGENCE_SERVICE_TENANT_ID,80);
   if(!apiKey||!from)return res.status(503).json({error:'Weekly buyer intelligence email is not configured'});if(!EMAIL.test(recipient))return res.status(503).json({error:'Weekly buyer intelligence report recipient is invalid'});

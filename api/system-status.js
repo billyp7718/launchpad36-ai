@@ -1,5 +1,6 @@
 import { db } from './_db.js';
 import { resolveInternalTenant } from './_tenant.js';
+import { buyerReportDeliveryConfig } from './_buyer-report-delivery.js';
 
 const REQUIRED_TABLES = [
   'manufacturers',
@@ -124,12 +125,12 @@ export default async function handler(req, res) {
       ingestionConfigured?'Scoped service authentication is configured':'BUYER_INTELLIGENCE_SERVICE_SECRET and BUYER_INTELLIGENCE_SERVICE_TENANT_ID are required'
     ));
 
-    const buyerReportConfigured=Boolean(process.env.CRON_SECRET&&process.env.RESEND_API_KEY&&process.env.REPORT_FROM_EMAIL&&(process.env.BUYER_INTELLIGENCE_REPORT_TENANT_ID||process.env.BUYER_INTELLIGENCE_SERVICE_TENANT_ID));
+    const buyerReport=buyerReportDeliveryConfig();
     components.push(component(
       'Buyer Intelligence Weekly Report',
-      buyerReportConfigured?'CONFIGURED':'NOT_CONFIGURED',
-      buyerReportConfigured?'Monday 9:00 AM Eastern reporting is configured':'CRON_SECRET, RESEND_API_KEY, REPORT_FROM_EMAIL and a scoped buyer-intelligence tenant ID are required',
-      {schedule:'Mondays at 9:00 AM America/New_York',recipient_configured:Boolean(process.env.BUYER_INTELLIGENCE_REPORT_TO||'Billp@launchpad36.com')}
+      buyerReport.configured?'CONFIGURED':'NOT_CONFIGURED',
+      buyerReport.detail,
+      {delivery_mode:buyerReport.mode,schedule:buyerReport.enabled?'Mondays at 9:00 AM America/New_York':'External',recipient_configured:buyerReport.enabled&&Boolean(process.env.BUYER_INTELLIGENCE_REPORT_TO||'Billp@launchpad36.com'),missing:buyerReport.missing}
     ));
 
     let targetCount = 0;
