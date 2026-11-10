@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { buyerResearchRecord, classifyBuyerResearchCandidate } from '../api/_buyer-research-runner.js';
 import { BUYER_RESEARCH_RUNNER_SQL } from '../api/db-init-buyer-research-runner.js';
+import { extractPublicBuyerEvidence, parseRobotsTxt, researchPublicAccountBuyers, robotsAllows, zeroPaidAccountOrigin } from '../api/_zero-paid-buyer-research.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
@@ -16,6 +17,9 @@ function verifiedRecord(overrides={}){
 }
 
 test('V9.8.4 migration is additive, idempotent, tenant scoped, and append-only',()=>{
+  assert.match(BUYER_RESEARCH_RUNNER_SQL,/create table if not exists buyer_research_settings/i);
+  assert.match(BUYER_RESEARCH_RUNNER_SQL,/automatic_refresh_enabled boolean not null default false/i);
+  assert.match(BUYER_RESEARCH_RUNNER_SQL,/refresh_interval_days integer not null default 30/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/create table if not exists buyer_research_jobs/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/create unique index if not exists buyer_research_jobs_one_active_uq/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/manufacturer_id uuid not null/i);
@@ -73,12 +77,13 @@ test('research worker is non-mutating, resumable, rate limited, cancellable, and
   assert.doesNotMatch(source,/x-forwarded-host/);
 });
 
-test('runner uses its own non-saving research path and prioritizes accounts without buyers',()=>{
+test('runner uses its own zero-paid non-saving research path and prioritizes accounts without buyers',()=>{
   const source=read('api/_buyer-research-runner.js');
-  assert.match(source,/searchOpenAIBuyers/);
+  assert.match(source,/researchPublicAccountBuyers/);
+  assert.doesNotMatch(source,/searchOpenAIBuyers|OPENAI_API_KEY|APOLLO_API_KEY|FIRECRAWL_API_KEY/);
   assert.doesNotMatch(source,/account-research/);
   assert.match(source,/order by \(count\(distinct b\.id\)=0\) desc/i);
-  assert.match(source,/allCategories:true/);
+  assert.match(source,/research_mode='ZERO_PAID_API'/);
 });
 
 test('runner APIs enforce buyer intelligence administration and audit denied operations',()=>{
@@ -100,8 +105,9 @@ test('runner preview commits require Administrator approval and retain existing 
 
 test('Buyer Intelligence Updates exposes progress, failures, preview review, and explicit approval',()=>{
   const ui=read('buyer-intelligence-updates-ui.js');
-  for(const marker of ['Accounts researched','Verified coverage','New verified buyers','Updates proposed','Unverified','Conflicting / stale','Failures / retries','Prepare Next Preview Batch','Admin Approve'])assert.match(ui,new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+  for(const marker of ['Accounts researched','Public pages fetched','New verified buyers','Updates proposed','Unverified','Conflicting / stale','Robots / access blocked','Prepare Next Preview Batch','Admin Approve','Estimated paid research API cost'])assert.match(ui,new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
   assert.match(ui,/Production buyer totals remain unchanged until an Administrator approves/);
+  assert.match(ui,/Per-account Deep Search remains a separate paid-capable workflow/);
 });
 
 test('OpenAI research supports merchant roles, source classification, and verification-only LinkedIn policy',()=>{
@@ -116,18 +122,45 @@ test('Vercel schedules bounded research ticks and grants adequate function durat
   const config=JSON.parse(read('vercel.json'));
   assert.deepEqual(config.functions['api/buyer-research-runner-tick.js'],{maxDuration:240});
   assert.ok(config.crons.some(item=>item.path==='/api/buyer-research-runner-tick'&&item.schedule==='* * * * *'));
+  assert.match(read('api/buyer-research-runner-tick.js'),/ensureScheduledBuyerResearchJob/);
 });
 
-test('bulk research defaults fail-closed before any paid provider call',()=>{
-  const tick=read('api/buyer-research-runner-tick.js');
-  assert.match(tick,/BUYER_RESEARCH_ZERO_PAID_MODE\|\|'true'/);
-  assert.match(tick,/ZERO_PAID_MODE_PAUSED/);
-  assert.ok(tick.indexOf('ZERO_PAID_MODE_PAUSED')<tick.indexOf('research=await processNextBuyerResearchAccount'));
+test('bulk research has no paid-provider import or fallback',()=>{
+  const tick=read('api/buyer-research-runner-tick.js'),runner=read('api/_buyer-research-runner.js'),zeroPaid=read('api/_zero-paid-buyer-research.js'),weekly=read('api/weekly-refresh.js');
+  for(const source of [tick,runner,zeroPaid])assert.doesNotMatch(source,/searchOpenAIBuyers|openai\.com|api\.apollo\.io|api\.firecrawl\.dev|ANTHROPIC_API_KEY/);
+  assert.match(runner,/zero_paid_api_mode/);
+  assert.match(runner,/external_api_cost_cents=0/);
+  assert.match(runner,/automatic_refresh_enabled/);
+  assert.match(runner,/AUTOMATIC_REFRESH_DISABLED/);
+  assert.match(runner,/APPROVAL_REQUIRED/);
+  assert.match(runner,/committed\.preview_run_id=ir\.id/);
+  assert.match(zeroPaid,/DIRECT_PUBLIC_WEB/);
+  assert.match(weekly,/SKIPPED_ZERO_PAID_MODE/);
+  assert.match(weekly,/zeroPaidBulkBuyerResearch\?Promise\.resolve\(null\):fetch/);
+});
+
+test('zero-paid research respects robots, extracts explicit category ownership, and costs zero',async()=>{
+  const origin='https://retailer.example',calls=[],html=`<html><head><meta property="article:published_time" content="2026-10-01"></head><body><script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Jane Merchant","jobTitle":"Category Manager, Audio and Speakers","sameAs":"https://www.linkedin.com/in/jane-merchant","description":"Owns audio and speaker merchandising."}</script></body></html>`;
+  const responses=new Map([
+    [`${origin}/robots.txt`,new Response('User-agent: *\nDisallow: /team\nSitemap: https://retailer.example/sitemap.xml',{status:200,headers:{'content-type':'text/plain'}})],
+    [`${origin}/sitemap.xml`,new Response('<urlset><url><loc>https://retailer.example/about/leadership</loc></url><url><loc>https://retailer.example/team</loc></url></urlset>',{status:200,headers:{'content-type':'application/xml'}})],
+    [`${origin}/about/leadership`,new Response(html,{status:200,headers:{'content-type':'text/html'}})]
+  ]),fetcher=async url=>{calls.push(String(url));return responses.get(String(url))||new Response('missing',{status:404,headers:{'content-type':'text/plain'}})};
+  const result=await researchPublicAccountBuyers({account:'Retailer Example',domain:'retailer.example',categories:['Audio']},{fetcher,maxPages:3,pageDelayMs:0,now:()=>new Date('2026-11-10T12:00:00Z')});
+  assert.equal(result.status,'SUCCESS');assert.equal(result.external_api_cost_cents,0);assert.equal(result.people.length,1);assert.equal(result.people[0].name,'Jane Merchant');assert.equal(result.people[0].buyer_role,'CATEGORY_OWNER');assert.match(result.people[0].category_scope,/Audio/);assert.equal(result.people[0].category_verification_status,'VERIFIED');assert.ok(!calls.includes(`${origin}/team`));
+});
+
+test('zero-paid source controls reject private hosts, generic executives, and access challenges',async()=>{
+  assert.equal(zeroPaidAccountOrigin('localhost'),'');assert.equal(zeroPaidAccountOrigin('127.0.0.1'),'');assert.equal(zeroPaidAccountOrigin('[::1]'),'');assert.equal(zeroPaidAccountOrigin('retailer.example'),'https://retailer.example');
+  const robots=parseRobotsTxt('User-agent: *\nDisallow: /private/*\nDisallow: /draft$\nSitemap: https://retailer.example/sitemap.xml','https://retailer.example');assert.equal(robotsAllows('https://retailer.example/private/team',robots),false);assert.equal(robotsAllows('https://retailer.example/draft',robots),false);assert.equal(robotsAllows('https://retailer.example/draft/current',robots),true);assert.equal(robotsAllows('https://retailer.example/leadership',robots),true);
+  const generic=extractPublicBuyerEvidence({html:'<script type="application/ld+json">{"@type":"Person","name":"John Executive","jobTitle":"Chief Executive Officer"}</script>',url:'https://retailer.example/leadership',account:'Retailer Example',observedAt:'2026-11-10T12:00:00Z'});assert.deepEqual(generic,[]);
+  const blocked=await researchPublicAccountBuyers({account:'Retailer Example',domain:'retailer.example'},{fetcher:async()=>new Response('Verify you are human',{status:403,headers:{'content-type':'text/html'}}),pageDelayMs:0});assert.equal(blocked.status,'BLOCKED');assert.equal(blocked.pages_fetched,0);
 });
 
 test('main migration and readiness include all V9.8.4 staging tables',()=>{
   const migration=read('api/db-init-v9-8.js'),status=read('api/system-status.js');
   assert.match(migration,/BUYER_RESEARCH_RUNNER_SQL/);
-  for(const table of ['buyer_research_jobs','buyer_research_job_accounts','buyer_research_candidates','buyer_research_events','buyer_research_preview_batches','buyer_research_preview_items'])assert.match(status,new RegExp(table));
+  for(const table of ['buyer_research_settings','buyer_research_jobs','buyer_research_job_accounts','buyer_research_candidates','buyer_research_events','buyer_research_preview_batches','buyer_research_preview_items'])assert.match(status,new RegExp(table));
   assert.match(status,/direct_buyer_mutation:false/);
+  assert.match(status,/zero_paid_api_mode:true/);
 });

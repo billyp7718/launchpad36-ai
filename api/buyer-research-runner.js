@@ -1,6 +1,6 @@
 import { db } from './_db.js';
 import { appendPermissionAudit } from './_permission-audit.js';
-import { CAPABILITIES, hasCapability } from './_permissions.js';
+import { canonicalRole, CAPABILITIES, hasCapability, ROLES } from './_permissions.js';
 import { resolveTenant } from './_tenant.js';
 import {
   buyerResearchDashboard,
@@ -8,7 +8,8 @@ import {
   createBuyerResearchJob,
   createNextBuyerResearchPreview,
   processNextBuyerResearchAccount,
-  researchJobIdempotency
+  researchJobIdempotency,
+  updateBuyerResearchSettings
 } from './_buyer-research-runner.js';
 
 const clean=(value,max=200)=>String(value??'').replace(/\s+/g,' ').trim().slice(0,max);
@@ -40,6 +41,9 @@ export default async function handler(req,res){
       result=await createBuyerResearchJob({manufacturerId:tenant.tenant_id,userId:tenant.user_id,idempotencyKey,providerCallBudget:req.body?.provider_call_budget,maxAttempts:req.body?.max_attempts,minIntervalSeconds:req.body?.min_interval_seconds,maxConcurrency:req.body?.max_concurrency,limit:req.body?.limit||500,req},{sql});
     }else if(action==='process_next'){
       result=await processNextBuyerResearchAccount({manufacturerId:tenant.tenant_id},{sql});
+    }else if(action==='update_settings'){
+      if(tenant.source!=='admin_bearer'&&canonicalRole(tenant.role)!==ROLES.ADMIN)throw Object.assign(new Error('Administrator permission is required to change bulk research cost controls'),{statusCode:403});
+      result={settings:await updateBuyerResearchSettings({manufacturerId:tenant.tenant_id,userId:tenant.user_id,zeroPaidApiMode:req.body?.zero_paid_api_mode!==false,maxPublicPagesPerAccount:req.body?.max_public_pages_per_account,minIntervalSeconds:req.body?.min_interval_seconds,automaticRefreshEnabled:req.body?.automatic_refresh_enabled===true,refreshIntervalDays:req.body?.refresh_interval_days},{sql})};
     }else if(action==='prepare_preview'){
       const jobId=clean(req.body?.job_id,80);if(jobId&&!UUID.test(jobId))return res.status(400).json({error:'job_id must be a valid UUID'});
       result=await createNextBuyerResearchPreview({manufacturerId:tenant.tenant_id,jobId:jobId||null,req},{sql});
