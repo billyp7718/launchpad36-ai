@@ -20,6 +20,7 @@ test('V9.8.4 migration is additive, idempotent, tenant scoped, and append-only',
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/create table if not exists buyer_research_settings/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/automatic_refresh_enabled boolean not null default false/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/refresh_interval_days integer not null default 30/i);
+  assert.match(BUYER_RESEARCH_RUNNER_SQL,/zero_paid_authorized boolean not null default false/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/create table if not exists buyer_research_jobs/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/create unique index if not exists buyer_research_jobs_one_active_uq/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/manufacturer_id uuid not null/i);
@@ -84,6 +85,8 @@ test('runner uses its own zero-paid non-saving research path and prioritizes acc
   assert.doesNotMatch(source,/account-research/);
   assert.match(source,/order by \(count\(distinct b\.id\)=0\) desc/i);
   assert.match(source,/research_mode='ZERO_PAID_API'/);
+  assert.match(source,/ADMIN_CONFIRMATION_REQUIRED/);
+  assert.match(source,/zero_paid_authorized=case when .*resume.* then true/s);
 });
 
 test('runner APIs enforce buyer intelligence administration and audit denied operations',()=>{
