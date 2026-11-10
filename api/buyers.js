@@ -8,7 +8,8 @@ const canAccess=(row,tenant)=>canSeeAllTenantData(tenant)||String(row.owner_user
 export default async function handler(req,res){
  try{
   const tenant=await resolveTenant(req,res);if(!tenant)return;
-  if(!requireCapability(tenant,res,req.method==='GET'?CAPABILITIES.APP_READ:CAPABILITIES.APP_WRITE))return;
+  const capability=req.method==='GET'?CAPABILITIES.APP_READ:req.method==='PATCH'?CAPABILITIES.BUYER_UPDATE:CAPABILITIES.APP_WRITE;
+  if(!requireCapability(tenant,res,capability))return;
   res.setHeader('Cache-Control','no-store, max-age=0');
   if(req.method==='GET'){
     const sql=db(),account=req.query.account_id||null,organization=req.query.organization_id||null;

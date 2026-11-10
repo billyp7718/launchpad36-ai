@@ -37,9 +37,9 @@ import { launchpadCrmOpportunityPayload, launchpadCrmSignatureMessage, launchpad
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
-    ADMIN:['APP_READ','APP_WRITE','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TENANT','USER_ADMIN_TEAM','TENANT_SECURITY','SEE_ALL_BUSINESS_DATA'],
-    MANAGER:['APP_READ','APP_WRITE','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TEAM','SEE_ALL_BUSINESS_DATA'],
-    MEMBER:['APP_READ','APP_WRITE','DEEP_SEARCH'],
+    ADMIN:['APP_READ','APP_WRITE','BUYER_UPDATE','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TENANT','USER_ADMIN_TEAM','TENANT_SECURITY','SEE_ALL_BUSINESS_DATA'],
+    MANAGER:['APP_READ','APP_WRITE','BUYER_UPDATE','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TEAM','SEE_ALL_BUSINESS_DATA'],
+    MEMBER:['APP_READ','APP_WRITE','BUYER_UPDATE','DEEP_SEARCH'],
     VIEWER:['APP_READ']
   };
   for(const role of Object.values(ROLES))assert.deepEqual(new Set(roleCapabilities(role)),new Set(expected[role]),role);
@@ -48,6 +48,8 @@ test('central authorization matrix grants only the intended role capabilities',(
   assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.DEEP_SEARCH),false);
   assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.DEEP_MARKET_ANALYSIS),false);
   assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.APP_WRITE),false);
+  assert.equal(hasCapability(ROLES.MEMBER,CAPABILITIES.BUYER_UPDATE),true);
+  assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.BUYER_UPDATE),false);
 });
 
 test('manager administration cannot escape team scope or escalate roles',()=>{
@@ -57,6 +59,23 @@ test('manager administration cannot escape team scope or escalate roles',()=>{
   assert.equal(managerMayGrant(ROLES.MANAGER),false);
   assert.equal(managerMayGrant(ROLES.MEMBER),true);
   assert.equal(managerMayGrant(ROLES.VIEWER),true);
+});
+
+test('buyer record updates require the dedicated server and UI capability',async()=>{
+  const [apiSource,ui,contactUi,deepSearchUi]=await Promise.all([
+    readFile(new URL('../api/buyers.js',import.meta.url),'utf8'),
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../buyer-contact-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../deep-buyer-search-ui-v3.js',import.meta.url),'utf8')
+  ]);
+  assert.match(apiSource,/req\.method==='PATCH'\?CAPABILITIES\.BUYER_UPDATE/);
+  assert.match(ui,/can\('BUYER_UPDATE'\)/);
+  assert.match(ui,/capabilityNotice\('BUYER_UPDATE'\)/);
+  for(const source of [ui,contactUi,deepSearchUi])assert.match(source,/data-capability="BUYER_UPDATE"/);
+  const denied=[];const response={status(code){assert.equal(code,403);return this},json(value){denied.push(value);return value}};
+  assert.equal(requireCapability({role:ROLES.VIEWER},response,CAPABILITIES.BUYER_UPDATE),false);
+  assert.equal(requireCapability({role:ROLES.MEMBER},response,CAPABILITIES.BUYER_UPDATE),true);
+  assert.equal(denied[0]?.required_capability,CAPABILITIES.BUYER_UPDATE);
 });
 
 test('role controls persist canonical roles instead of visually reverting to viewer',async()=>{
