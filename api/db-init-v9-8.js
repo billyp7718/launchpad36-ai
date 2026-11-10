@@ -146,7 +146,6 @@ create table if not exists intelligence_change_events (
 );
 alter table intelligence_change_events add column if not exists account_id uuid references accounts(id) on delete cascade;
 alter table intelligence_change_events add column if not exists organization_id uuid references retail_organizations(id) on delete cascade;
-update intelligence_change_events ice set account_id=coalesce(ice.account_id,ce.account_id),organization_id=coalesce(ice.organization_id,ce.organization_id) from commercial_evidence ce where ce.id=ice.current_evidence_id and (ice.account_id is null or ice.organization_id is null);
 create index if not exists intelligence_changes_subject_idx on intelligence_change_events(subject_type,subject_key,detected_at desc);
 create index if not exists intelligence_changes_pending_idx on intelligence_change_events(verification_status,detected_at desc);
 create index if not exists intelligence_changes_account_idx on intelligence_change_events(account_id,detected_at desc);

@@ -590,6 +590,7 @@ test('immutable change history keeps processing state in a separate table',async
   assert.match(source,/column_name='processed_at'/);
   assert.match(source,/insert into intelligence_change_event_processing\(change_event_id,processor,status,processed_at,last_attempt_at\)/);
   assert.doesNotMatch(source,/drop column processed_at/i);
+  assert.doesNotMatch(source,/update\s+intelligence_change_events\b/i);
   assert.match(source,/create trigger intelligence_change_events_immutable/);
 });
 
