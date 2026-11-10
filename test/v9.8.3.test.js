@@ -34,12 +34,15 @@ import { buildAccountIntelligenceSummary, inStoreCoverage, selectCategoryOwner }
 import { REVENUE_MISSION_SQL } from '../api/db-init-revenue-missions.js';
 import { calculateMissionMetrics, evaluateMissionOpportunity, missionNextActions, normalizePipelineStage } from '../api/_revenue-missions.js';
 import { launchpadCrmOpportunityPayload, launchpadCrmSignatureMessage, launchpadCrmStage, signLaunchpadCrmRequest } from '../api/_crm.js';
+import { authoritativeCategory, authoritativeIdentity, buyerImportRecordKey, importCounts, normalizeBuyerImportRecord, planBuyerImport } from '../api/_buyer-intelligence-ingest.js';
+import { BUYER_INTELLIGENCE_IMPORT_SQL } from '../api/db-init-buyer-intelligence-import.js';
+import { easternScheduleParts, isMondayNineEastern, weeklyBuyerReportHtml } from '../api/buyer-intelligence-weekly-report.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
-    ADMIN:['APP_READ','APP_WRITE','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TENANT','USER_ADMIN_TEAM','TENANT_SECURITY','SEE_ALL_BUSINESS_DATA'],
-    MANAGER:['APP_READ','APP_WRITE','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TEAM','SEE_ALL_BUSINESS_DATA'],
-    MEMBER:['APP_READ','APP_WRITE','DEEP_SEARCH'],
+    ADMIN:['APP_READ','APP_WRITE','BUYER_UPDATE','BUYER_INTELLIGENCE_ADMIN','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TENANT','USER_ADMIN_TEAM','TENANT_SECURITY','SEE_ALL_BUSINESS_DATA'],
+    MANAGER:['APP_READ','APP_WRITE','BUYER_UPDATE','BUYER_INTELLIGENCE_ADMIN','DEEP_SEARCH','DEEP_MARKET_ANALYSIS','USER_ADMIN_TEAM','SEE_ALL_BUSINESS_DATA'],
+    MEMBER:['APP_READ','APP_WRITE','BUYER_UPDATE','DEEP_SEARCH'],
     VIEWER:['APP_READ']
   };
   for(const role of Object.values(ROLES))assert.deepEqual(new Set(roleCapabilities(role)),new Set(expected[role]),role);
@@ -48,6 +51,10 @@ test('central authorization matrix grants only the intended role capabilities',(
   assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.DEEP_SEARCH),false);
   assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.DEEP_MARKET_ANALYSIS),false);
   assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.APP_WRITE),false);
+  assert.equal(hasCapability(ROLES.MEMBER,CAPABILITIES.BUYER_UPDATE),true);
+  assert.equal(hasCapability(ROLES.VIEWER,CAPABILITIES.BUYER_UPDATE),false);
+  assert.equal(hasCapability(ROLES.MANAGER,CAPABILITIES.BUYER_INTELLIGENCE_ADMIN),true);
+  assert.equal(hasCapability(ROLES.MEMBER,CAPABILITIES.BUYER_INTELLIGENCE_ADMIN),false);
 });
 
 test('manager administration cannot escape team scope or escalate roles',()=>{
@@ -57,6 +64,71 @@ test('manager administration cannot escape team scope or escalate roles',()=>{
   assert.equal(managerMayGrant(ROLES.MANAGER),false);
   assert.equal(managerMayGrant(ROLES.MEMBER),true);
   assert.equal(managerMayGrant(ROLES.VIEWER),true);
+});
+
+test('buyer record updates require the dedicated server and UI capability',async()=>{
+  const [apiSource,ui,contactUi,deepSearchUi]=await Promise.all([
+    readFile(new URL('../api/buyers.js',import.meta.url),'utf8'),
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../buyer-contact-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../deep-buyer-search-ui-v3.js',import.meta.url),'utf8')
+  ]);
+  assert.match(apiSource,/req\.method==='PATCH'\?CAPABILITIES\.BUYER_UPDATE/);
+  assert.match(ui,/can\('BUYER_UPDATE'\)/);
+  assert.match(ui,/capabilityNotice\('BUYER_UPDATE'\)/);
+  for(const source of [ui,contactUi,deepSearchUi])assert.match(source,/data-capability="BUYER_UPDATE"/);
+  const denied=[];const response={status(code){assert.equal(code,403);return this},json(value){denied.push(value);return value}};
+  assert.equal(requireCapability({role:ROLES.VIEWER},response,CAPABILITIES.BUYER_UPDATE),false);
+  assert.equal(requireCapability({role:ROLES.MEMBER},response,CAPABILITIES.BUYER_UPDATE),true);
+  assert.equal(denied[0]?.required_capability,CAPABILITIES.BUYER_UPDATE);
+});
+
+test('buyer intelligence import schema is additive, tenant scoped and append only',()=>{
+  for(const table of ['buyer_intelligence_import_runs','buyer_intelligence_import_items','buyer_intelligence_audit_events','buyer_intelligence_rate_limits','buyer_intelligence_report_deliveries'])assert.match(BUYER_INTELLIGENCE_IMPORT_SQL,new RegExp(`create table if not exists ${table}`));
+  assert.match(BUYER_INTELLIGENCE_IMPORT_SQL,/unique\(manufacturer_id,idempotency_key,mode\)/);
+  assert.match(BUYER_INTELLIGENCE_IMPORT_SQL,/buyer_intelligence_import_items_immutable/);
+  assert.match(BUYER_INTELLIGENCE_IMPORT_SQL,/buyer_intelligence_audit_events_immutable/);
+  assert.doesNotMatch(BUYER_INTELLIGENCE_IMPORT_SQL,/drop\s+(table|column)|truncate\s+|delete\s+from\s+(accounts|buyers|retail_organizations)/i);
+});
+
+test('buyer intelligence imports reject inferred personal contacts and require authoritative evidence',()=>{
+  const base={account_name:'Example National Retailer',account_domain:'example-retailer.test',name:'Jane Merchant',title:'Senior Category Manager',department:'Consumer Electronics',category_scope:'Audio',buyer_role:'CATEGORY_OWNER',source_url:'https://example-retailer.test/news/jane-merchant',source_type:'official_company',observed_at:'2026-11-09T14:00:00Z',last_verified_at:'2026-11-09T14:00:00Z',identity_confidence:94,employment_verification_status:'VERIFIED',category_confidence:91,category_verification_status:'VERIFIED',category_evidence_url:'https://example-retailer.test/news/jane-merchant',public_profile_url:'https://www.linkedin.com/in/jane-merchant'};
+  const inferred=normalizeBuyerImportRecord({...base,public_email:'jane.merchant@gmail.com',public_phone:'212-555-0100'});assert.equal(inferred.public_email,'');assert.equal(inferred.public_phone,'');
+  const published=normalizeBuyerImportRecord({...base,public_email:'jane@example-retailer.test',public_phone:'212-555-0100',contact_published:true,contact_source_url:'https://example-retailer.test/contact/jane'});assert.equal(published.public_email,'jane@example-retailer.test');assert.equal(published.public_phone,'212-555-0100');assert.equal(authoritativeIdentity(published),true);assert.equal(authoritativeCategory(published),true);
+  const add=planBuyerImport(null,published);assert.equal(add.action,'ADD_BUYER');assert.equal(add.result,'READY');assert.equal(buyerImportRecordKey(published),buyerImportRecordKey({...published,title:'Promoted title'}));
+  const existing={name:published.name,title:published.title,department:published.department,category_scope:published.category_scope,subcategory_scope:'',buyer_role:published.buyer_role,linkedin:published.public_profile_url,email:published.public_email,phone:published.public_phone};assert.equal(planBuyerImport(existing,published).action,'DUPLICATE_PREVENTED');
+  const weak=normalizeBuyerImportRecord({...base,source_type:'web_search',identity_confidence:55,employment_verification_status:'PROBABLE'});assert.equal(planBuyerImport(existing,{...weak,title:'Vice President'}).action,'REVIEW_REQUIRED');
+  assert.deepEqual(importCounts([{action:'ADD_BUYER'},{action:'UPDATE_BUYER'},{action:'REVIEW_REQUIRED'},{action:'DUPLICATE_PREVENTED'},{action:'REJECTED'}]),{records_seen:5,records_added:1,records_updated:1,records_flagged:1,duplicates_prevented:1,records_rejected:1});
+});
+
+test('buyer intelligence bulk endpoint enforces scoped service auth, preview, idempotency and transactional commit',async()=>{
+  const source=await readFile(new URL('../api/buyer-intelligence-import.js',import.meta.url),'utf8');
+  for(const marker of ['BUYER_INTELLIGENCE_SERVICE_SECRET','BUYER_INTELLIGENCE_SERVICE_TENANT_ID','BUYER_INTELLIGENCE_ADMIN','buyer_intelligence_rate_limits','idempotency_key','preview_run_id','PREVIEW_READY','sql.begin','runLivingIntelligencePipeline','appendBuyerRelationship','buyer_intelligence_audit_events','EMPLOYER_CHANGED','priorProfileBuyer','failure ledger unavailable'])assert.match(source,new RegExp(marker));
+  assert.match(source,/resolveTenant\(req,res,\{allowAdminBearer:false/);
+  assert.match(source,/Bulk buyer imports require a preview_run_id/);assert.match(source,/maximum of 250 buyer records/i);assert.match(source,/no partial commercial changes were committed/i);
+  assert.doesNotMatch(source,/console\.(?:log|error)\([^\n]*(?:SERVICE_SECRET|authorization|bearer\(req\))/i);
+});
+
+test('Buyer Intelligence Updates UI previews the exact import before commit',async()=>{
+  const [ui,shell]=await Promise.all([readFile(new URL('../buyer-intelligence-updates-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')]);
+  for(const marker of ['Buyer Intelligence Updates','Preview Bulk Import','dry_run:true','preview_run_id:previewId','Approve & Commit Verified Changes','Duplicates prevented','Missing category buyers','Last successful synchronization','Import errors'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/BUYER_INTELLIGENCE_ADMIN/);assert.match(shell,/buyer-intelligence-updates-ui\.js/);
+});
+
+test('weekly buyer intelligence report is Eastern-time gated, idempotent and source attributable',async()=>{
+  const source=await readFile(new URL('../api/buyer-intelligence-weekly-report.js',import.meta.url),'utf8'),config=JSON.parse(await readFile(new URL('../vercel.json',import.meta.url),'utf8'));
+  assert.equal(isMondayNineEastern(new Date('2026-11-09T14:00:00Z')),true);assert.equal(isMondayNineEastern(new Date('2026-11-09T13:00:00Z')),false);assert.equal(easternScheduleParts(new Date('2026-07-06T13:00:00Z')).hour,9);
+  const report=weeklyBuyerReportHtml({tenant:{name:'Example Manufacturer'},periodStart:new Date('2026-11-02T14:00:00Z'),periodEnd:new Date('2026-11-09T14:00:00Z'),summary:{newly_verified:2,updated:1,flagged:3,duplicates_prevented:4},events:[{action_type:'ADD_BUYER',result:'SUCCESS',source_url:'https://retailer.example/source',new_value:{account_name:'Retailer',name:'Jane Buyer',title:'Category Manager',category_scope:'Audio',last_verified_at:'2026-11-09'}}],failedRuns:[],missingCategoryBuyers:5});
+  for(const marker of ['Newly verified','Updated / changed','Needs verification','Duplicates prevented','Missing category buyers','retailer.example/source'])assert.match(report,new RegExp(marker));
+  for(const marker of ['RESEND_API_KEY','REPORT_FROM_EMAIL','BUYER_INTELLIGENCE_REPORT_TO','BUYER_INTELLIGENCE_REPORT_TENANT_ID','Billp@launchpad36.com','Idempotency-Key','buyer_intelligence_report_deliveries','requireInternal'])assert.match(source,new RegExp(marker));
+  assert.match(source,/select id,name from manufacturers where id=\$\{reportTenant\} limit 1/);assert.doesNotMatch(source,/select id,name from manufacturers order by created_at/);
+  assert.ok(config.crons.some(item=>item.path==='/api/buyer-intelligence-weekly-report'&&item.schedule==='0 13,14 * * 1'));
+});
+
+test('weekly refresh expands missing category-buyer coverage without deleting prior intelligence',async()=>{
+  const source=await readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8');
+  for(const marker of ['BUYER_COVERAGE_WEEKLY_LIMIT','missingCoverage','buyerCoverageExpansion','category_verification_status=\'VERIFIED\'','coverage_expansion:true'])assert.match(source,new RegExp(marker));
+  assert.doesNotMatch(source,/delete\s+from\s+(buyers|buyer_category_relationships|accounts)|truncate/i);
 });
 
 test('role controls persist canonical roles instead of visually reverting to viewer',async()=>{
@@ -1086,11 +1158,11 @@ test('weekly retailer discovery retains only attributable candidates and dedupli
   const result=normalizeOpenAIRetailers(payload);assert.equal(result.status,'SUCCESS');assert.equal(result.retailers.length,1);assert.equal(result.retailers[0].verification_status,'DISCOVERY_CANDIDATE');assert.equal(result.retailers[0].headquarters,'Austin, Texas');
 });
 
-test('retailer discovery and opportunity alerts share the existing scheduled refresh jobs',async()=>{
+test('retailer discovery, opportunity alerts and buyer reporting use the scheduled refresh jobs',async()=>{
   const [agent,weekly,living,ui,status,config]=await Promise.all([readFile(new URL('../api/retailer-discovery-agent.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../api/living-intelligence-refresh.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../vercel.json',import.meta.url),'utf8')]);
   assert.match(agent,/searchOpenAIRetailers/);assert.match(agent,/DISCOVERY_CANDIDATE/);assert.match(agent,/runLivingIntelligencePipeline/);assert.match(agent,/where active=true and \(lower\(regexp_replace\(domain/);
   assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(living,/runOpportunityAlertRefresh/);assert.match(ui,/Discover New Retailers/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
-  const crons=JSON.parse(config).crons;assert.equal(crons.length,2);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));
+  const crons=JSON.parse(config).crons;assert.equal(crons.length,3);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-intelligence-weekly-report'&&x.schedule==='0 13,14 * * 1'));
 });
 
 test('account research modal keeps product research visible across screen sizes',async()=>{

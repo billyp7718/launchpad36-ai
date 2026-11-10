@@ -16,6 +16,7 @@ export default async function handler(req,res){
       '/route-fit-ui.js',
       '/deep-buyer-search-ui-v3.js',
       '/buyer-category-intelligence-ui.js',
+      '/buyer-intelligence-updates-ui.js',
       '/assortment-intelligence-ui.js',
       '/multi-user-ui.js',
       '/phase2-tenancy-ui.js',

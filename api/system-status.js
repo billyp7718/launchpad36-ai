@@ -25,7 +25,12 @@ const REQUIRED_TABLES = [
   'l36_trust_evaluations',
   'revenue_missions',
   'revenue_mission_opportunities',
-  'revenue_mission_events'
+  'revenue_mission_events',
+  'buyer_intelligence_import_runs',
+  'buyer_intelligence_import_items',
+  'buyer_intelligence_audit_events',
+  'buyer_intelligence_rate_limits',
+  'buyer_intelligence_report_deliveries'
 ];
 
 function component(name, status, detail, extra = {}) {
@@ -110,6 +115,21 @@ export default async function handler(req, res) {
       'Buyer Enrichment',
       apolloConfigured ? 'CONFIGURED' : 'OPTIONAL',
       apolloConfigured ? 'Optional Apollo key is present; validity is checked during live research' : 'Optional: add APOLLO_API_KEY for a second buyer-data source'
+    ));
+
+    const ingestionConfigured=Boolean(process.env.BUYER_INTELLIGENCE_SERVICE_SECRET&&process.env.BUYER_INTELLIGENCE_SERVICE_TENANT_ID);
+    components.push(component(
+      'Buyer Intelligence Ingestion',
+      ingestionConfigured?'CONFIGURED':'NOT_CONFIGURED',
+      ingestionConfigured?'Scoped service authentication is configured':'BUYER_INTELLIGENCE_SERVICE_SECRET and BUYER_INTELLIGENCE_SERVICE_TENANT_ID are required'
+    ));
+
+    const buyerReportConfigured=Boolean(process.env.CRON_SECRET&&process.env.RESEND_API_KEY&&process.env.REPORT_FROM_EMAIL&&(process.env.BUYER_INTELLIGENCE_REPORT_TENANT_ID||process.env.BUYER_INTELLIGENCE_SERVICE_TENANT_ID));
+    components.push(component(
+      'Buyer Intelligence Weekly Report',
+      buyerReportConfigured?'CONFIGURED':'NOT_CONFIGURED',
+      buyerReportConfigured?'Monday 9:00 AM Eastern reporting is configured':'CRON_SECRET, RESEND_API_KEY, REPORT_FROM_EMAIL and a scoped buyer-intelligence tenant ID are required',
+      {schedule:'Mondays at 9:00 AM America/New_York',recipient_configured:Boolean(process.env.BUYER_INTELLIGENCE_REPORT_TO||'Billp@launchpad36.com')}
     ));
 
     let targetCount = 0;
