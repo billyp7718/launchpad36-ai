@@ -106,6 +106,8 @@ test('runner preview commits require Administrator approval and retain existing 
   assert.match(source,/preview_run_id/);
   assert.match(runner,/classification='NEW_VERIFIED_BUYER'/);
   assert.match(runner,/allowPaused\?\['PAUSED'\]/);
+  assert.match(runner,/if\(local\|\|launchpad\|\|vercel\)return/);
+  assert.match(runner,/error\?\.message\|\|error\?\.code/);
   assert.match(route,/prepare_verified_preview/);
   assert.match(route,/Administrator permission is required to preview verified paid-run candidates/);
   assert.match(ui,/Preview .* Verified Candidates/);

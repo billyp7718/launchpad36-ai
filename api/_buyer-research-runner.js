@@ -167,11 +167,15 @@ export async function ensureScheduledBuyerResearchJob({manufacturerId,req=null},
 }
 
 function safeOrigin(req){
-  const deploymentHost=clean(process.env.VERCEL_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL,240).replace(/^https?:\/\//,'').replace(/\/$/,'');
-  if(/^[a-z0-9.-]+(?::\d+)?$/i.test(deploymentHost))return `https://${deploymentHost}`;
   const hostName=clean(req.headers.host,240).toLowerCase(),local=/^(?:localhost|127\.0\.0\.1)(?::\d+)?$/.test(hostName),launchpad=/^(?:www\.)?launchpad36\.(?:app|com)$/.test(hostName),vercel=/^[a-z0-9-]+\.vercel\.app$/.test(hostName);
-  if(!local&&!launchpad&&!vercel)return '';
-  return `${local?'http':'https'}://${hostName}`;
+  if(local||launchpad||vercel)return `${local?'http':'https'}://${hostName}`;
+  const deploymentHost=clean(process.env.VERCEL_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL,240).replace(/^https?:\/\//,'').replace(/\/$/,'');
+  return /^[a-z0-9-]+\.vercel\.app$/i.test(deploymentHost)?`https://${deploymentHost}`:'';
+}
+
+function importPreviewError(body,status){
+  const error=body?.error,detail=typeof error==='string'?error:error?.message||error?.code||body?.message||body?.code;
+  return clean(detail||`Import preview returned HTTP ${status}`,500);
 }
 
 export async function createNextBuyerResearchPreview({manufacturerId,jobId=null,req,verifiedOnly=false,allowPaused=false},{sql=db(),fetcher=fetch}={}){
@@ -182,7 +186,7 @@ export async function createNextBuyerResearchPreview({manufacturerId,jobId=null,
   const batchNumber=Number((await sql`select coalesce(max(batch_number),0)::int value from buyer_research_preview_batches where job_id=${job.id}`)[0]?.value||0)+1,idempotencyKey=`buyer-research-${job.id}-preview-${batchNumber}`,origin=safeOrigin(req),secret=process.env.BUYER_INTELLIGENCE_SERVICE_SECRET||'';
   if(!origin||!secret)throw Object.assign(new Error('Scoped Buyer Intelligence service authentication is unavailable'),{statusCode:503});
   const response=await fetcher(`${origin}/api/buyer-intelligence-import`,{method:'POST',headers:{authorization:`Bearer ${secret}`,'content-type':'application/json','x-request-id':requestId(req)||`buyer-research-${job.id}`},body:JSON.stringify({dry_run:true,idempotency_key:idempotencyKey,source_type:'public_research',source_name:`V9.8.4 buyer research${verifiedOnly?' · verified only':''} · ${job.id} · batch ${batchNumber}`,records:candidates.map(item=>item.proposed_record)})}),body=await response.json().catch(()=>({}));
-  if(!response.ok)throw Object.assign(new Error(clean(body.error||`Import preview returned ${response.status}`,500)),{statusCode:response.status});
+  if(!response.ok)throw Object.assign(new Error(importPreviewError(body,response.status)),{statusCode:response.status});
   const batch=await sql.begin(async tx=>{let stored=(await tx`insert into buyer_research_preview_batches(job_id,manufacturer_id,batch_number,import_run_id,idempotency_key,record_count) values(${job.id},${manufacturerId},${batchNumber},${body.run.id},${idempotencyKey},${candidates.length}) on conflict do nothing returning *`)[0];if(!stored)stored=(await tx`select * from buyer_research_preview_batches where job_id=${job.id} and batch_number=${batchNumber} limit 1`)[0];for(const candidate of candidates)await tx`insert into buyer_research_preview_items(batch_id,candidate_id) values(${stored.id},${candidate.id}) on conflict do nothing`;await appendEvent(tx,{job,manufacturerId,eventType:'PREVIEW_BATCH_CREATED',detail:{batch_number:batchNumber,records:candidates.length,import_run_id:body.run.id},req});return stored});
   const refreshed=await refreshJobStats(sql,job.id);return {status:'PREVIEW_BATCH_CREATED',job:refreshed,batch,counts:body.counts,verified_only:verifiedOnly};
 }
