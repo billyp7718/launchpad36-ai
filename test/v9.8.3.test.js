@@ -825,6 +825,9 @@ test('invalid Apollo authentication degrades optional enrichment without failing
 test('buyer and evidence interfaces are account-scoped and mobile-safe',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.match(source,/id="buyerAccount"/);assert.match(source,/api\/buyers\?organization_id=/);
+  assert.match(source,/id="buyerAccountSearch"/);assert.match(source,/Search accounts by name or domain/);
+  assert.match(source,/function buyerAccountMatches/);assert.match(source,/function refreshBuyerAccountOptions/);
+  assert.match(source,/\[org\.name,org\.domain\]/);assert.match(source,/tenant-accessible account/);
   assert.match(source,/id="evidenceAccount"/);assert.match(source,/api\/account-research/);
   assert.match(source,/https:\/\/ is optional/);assert.match(source,/@media\(max-width:760px\)/);
   assert.match(source,/font-size:16px/);assert.match(source,/min-height:44px/);assert.match(source,/-webkit-overflow-scrolling:touch/);
