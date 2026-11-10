@@ -122,7 +122,12 @@ test('Vercel schedules bounded research ticks and grants adequate function durat
   const config=JSON.parse(read('vercel.json'));
   assert.deepEqual(config.functions['api/buyer-research-runner-tick.js'],{maxDuration:240});
   assert.ok(config.crons.some(item=>item.path==='/api/buyer-research-runner-tick'&&item.schedule==='* * * * *'));
-  assert.match(read('api/buyer-research-runner-tick.js'),/ensureScheduledBuyerResearchJob/);
+  const tick=read('api/buyer-research-runner-tick.js');
+  assert.match(tick,/ensureScheduledBuyerResearchJob/);
+  assert.match(tick,/BUYER_RESEARCH_RUNNER_SQL/);
+  assert.match(tick,/information_schema\.columns/);
+  assert.match(tick,/required\.every/);
+  assert.match(tick,/sql\.unsafe\(BUYER_RESEARCH_RUNNER_SQL\)/);
 });
 
 test('bulk research has no paid-provider import or fallback',()=>{
