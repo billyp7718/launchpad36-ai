@@ -104,6 +104,7 @@ test('buyer intelligence imports reject inferred personal contacts and require a
 test('buyer intelligence bulk endpoint enforces scoped service auth, preview, idempotency and transactional commit',async()=>{
   const source=await readFile(new URL('../api/buyer-intelligence-import.js',import.meta.url),'utf8');
   for(const marker of ['BUYER_INTELLIGENCE_SERVICE_SECRET','BUYER_INTELLIGENCE_SERVICE_TENANT_ID','BUYER_INTELLIGENCE_ADMIN','buyer_intelligence_rate_limits','idempotency_key','preview_run_id','PREVIEW_READY','sql.begin','runLivingIntelligencePipeline','appendBuyerRelationship','buyer_intelligence_audit_events','EMPLOYER_CHANGED','priorProfileBuyer','failure ledger unavailable'])assert.match(source,new RegExp(marker));
+  assert.match(source,/resolveTenant\(req,res,\{allowAdminBearer:false/);
   assert.match(source,/Bulk buyer imports require a preview_run_id/);assert.match(source,/maximum of 250 buyer records/i);assert.match(source,/no partial commercial changes were committed/i);
   assert.doesNotMatch(source,/console\.(?:log|error)\([^\n]*(?:SERVICE_SECRET|authorization|bearer\(req\))/i);
 });

@@ -20,7 +20,7 @@ async function ingestionActor(req,res){
     if(!exists)return res.status(503).json({error:'Buyer intelligence service tenant is unavailable'}),null;
     return {tenant_id:serviceTenant,user_id:null,role:'ADMIN',team_ids:[],source:'buyer_intelligence_service'};
   }
-  const tenant=await resolveTenant(req,res,{allowAdminBearer:true,enforceWriteCapability:false});if(!tenant)return null;
+  const tenant=await resolveTenant(req,res,{allowAdminBearer:false,enforceWriteCapability:false});if(!tenant)return null;
   if(!hasCapability(tenant,CAPABILITIES.BUYER_INTELLIGENCE_ADMIN))return res.status(403).json({error:'Buyer intelligence administration permission is required',code:'FORBIDDEN',required_capability:CAPABILITIES.BUYER_INTELLIGENCE_ADMIN}),null;
   return tenant;
 }
