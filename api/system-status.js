@@ -32,6 +32,7 @@ const REQUIRED_TABLES = [
   'buyer_intelligence_audit_events',
   'buyer_intelligence_rate_limits',
   'buyer_intelligence_report_deliveries',
+  'buyer_research_settings',
   'buyer_research_jobs',
   'buyer_research_job_accounts',
   'buyer_research_candidates',
@@ -106,22 +107,22 @@ export default async function handler(req, res) {
       'Optional Web Crawler',
       firecrawlConfigured ? 'CONFIGURED' : 'OPTIONAL',
       firecrawlConfigured
-        ? 'Firecrawl is available for background monitoring; interactive account research uses OpenAI'
-        : 'Interactive account research uses OpenAI; Firecrawl is optional for background monitoring'
+        ? 'Firecrawl is available for background monitoring; zero-paid bulk buyer research does not call it'
+        : 'Firecrawl is optional for background monitoring and is not used by zero-paid bulk buyer research'
     ));
 
     const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
     components.push(component(
       'OpenAI Research',
       openaiConfigured ? 'CONFIGURED' : 'NOT_CONFIGURED',
-      openaiConfigured ? 'Responses API web research is available for account and buyer discovery' : 'OPENAI_API_KEY is missing'
+      openaiConfigured ? 'Responses API web research is available for user-initiated per-account Deep Search only' : 'OPENAI_API_KEY is missing for optional per-account Deep Search'
     ));
 
     const apolloConfigured = Boolean(process.env.APOLLO_API_KEY);
     components.push(component(
       'Buyer Enrichment',
       apolloConfigured ? 'CONFIGURED' : 'OPTIONAL',
-      apolloConfigured ? 'Optional Apollo key is present; validity is checked during live research' : 'Optional: add APOLLO_API_KEY for a second buyer-data source'
+      apolloConfigured ? 'Optional Apollo enrichment is available for per-account Deep Search only' : 'Optional per-account enrichment is not configured; zero-paid bulk research is unaffected'
     ));
 
     const ingestionConfigured=Boolean(process.env.BUYER_INTELLIGENCE_SERVICE_SECRET&&process.env.BUYER_INTELLIGENCE_SERVICE_TENANT_ID);
@@ -139,18 +140,18 @@ export default async function handler(req, res) {
       {delivery_mode:buyerReport.mode,schedule:buyerReport.enabled?'Mondays at 9:00 AM America/New_York':'External',recipient_configured:buyerReport.enabled&&Boolean(process.env.BUYER_INTELLIGENCE_REPORT_TO||'Billp@launchpad36.com'),missing:buyerReport.missing}
     ));
 
-    const researchTables=['buyer_research_jobs','buyer_research_job_accounts','buyer_research_candidates','buyer_research_events','buyer_research_preview_batches','buyer_research_preview_items'];
+    const researchTables=['buyer_research_settings','buyer_research_jobs','buyer_research_job_accounts','buyer_research_candidates','buyer_research_events','buyer_research_preview_batches','buyer_research_preview_items'];
     const researchSchemaReady=researchTables.every(table=>present.has(table));
     let latestResearch=null;
     if(researchSchemaReady){
-      const rows=await sql`select id,status,requested_accounts,accounts_completed,candidates_found,verified_candidates,duplicate_candidates,conflicting_candidates,preview_batches,checkpoint_at,created_at from buyer_research_jobs order by created_at desc limit 1`;
+      const rows=await sql`select id,status,research_mode,requested_accounts,accounts_completed,candidates_found,verified_candidates,duplicate_candidates,conflicting_candidates,preview_batches,public_pages_fetched,robots_blocked_accounts,external_api_cost_cents,checkpoint_at,created_at from buyer_research_jobs order by created_at desc limit 1`;
       latestResearch=rows[0]||null;
     }
     components.push(component(
       'Buyer Research Runner',
-      !researchSchemaReady?'FAILED':!openaiConfigured?'NOT_CONFIGURED':latestResearch?.status==='FAILED'?'DEGRADED':latestResearch?'WORKING':'CONFIGURED',
-      !researchSchemaReady?'Buyer research staging schema is incomplete':!openaiConfigured?'OPENAI_API_KEY is required':latestResearch?`Latest job: ${latestResearch.status}; ${latestResearch.accounts_completed || 0}/${latestResearch.requested_accounts || 0} accounts checkpointed`:'Non-mutating resumable research is configured and awaiting an administrator start',
-      {latest_job:latestResearch,preview_only:true,direct_buyer_mutation:false}
+      !researchSchemaReady?'FAILED':latestResearch?.status==='FAILED'?'DEGRADED':latestResearch?'WORKING':'CONFIGURED',
+      !researchSchemaReady?'Buyer research staging schema is incomplete':latestResearch?`Zero-paid public-source job: ${latestResearch.status}; ${latestResearch.accounts_completed || 0}/${latestResearch.requested_accounts || 0} accounts checkpointed`:'Zero-paid, non-mutating research is configured and awaiting an administrator start',
+      {latest_job:latestResearch,zero_paid_api_mode:true,estimated_external_api_cost_cents:0,preview_only:true,direct_buyer_mutation:false,paid_deep_search_separate:true}
     ));
 
     let targetCount = 0;
