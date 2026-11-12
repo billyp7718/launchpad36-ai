@@ -62,6 +62,7 @@ insert into channels(code,name) values
  ('specialty_av','Specialty AV'),('office','Office'),('furniture','Furniture'),('club','Club/Warehouse'),
  ('home_improvement','Home Improvement'),('automotive','Automotive'),('department','Department Store'),('dealer','Dealer Network'),
  ('grocery','Grocery'),('supermarket','Supermarket'),('drug','Drug Store'),('pharmacy','Pharmacy'),
+ ('independent_pharmacy','Independent & Small-Chain Pharmacies'),
  ('value','Value Retail'),('dollar','Dollar Store'),('warehouse','Warehouse Club')
 on conflict(code) do nothing;
 

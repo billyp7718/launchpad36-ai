@@ -30,7 +30,8 @@ export default async function handler(req,res){
       '/sell-in-scenario-ui.js',
       '/revenue-missions-ui.js',
       '/retail-context-ui.js',
-      '/pitch-deck-ui.js'
+      '/pitch-deck-ui.js',
+      '/small-pharmacy-ui.js'
     ].map(src=>`<script src="${src}" defer></script>`).join('');
     const marker='</body>';
     const index=html.lastIndexOf(marker);
