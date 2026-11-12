@@ -29,7 +29,7 @@ export async function buildSmallPharmacyImportPlan(sql){
 }
 
 async function upsertOrganization(tx,row){
-  const existing=(await tx`select * from retail_organizations where active=true and (lower(name)=lower(${row.name}) or lower(regexp_replace(domain,'^www\\.',''))=${normalized(row.domain)}) order by case when lower(regexp_replace(domain,'^www\\.',''))=${normalized(row.domain)} then 0 else 1 end,updated_at desc limit 1`)[0]||null;
+  const existing=(await tx`select * from retail_organizations where lower(name)=lower(${row.name}) or lower(regexp_replace(domain,'^www\\.',''))=${normalized(row.domain)} order by case when lower(regexp_replace(domain,'^www\\.',''))=${normalized(row.domain)} then 0 else 1 end,active desc,updated_at desc limit 1`)[0]||null;
   if(existing)return (await tx`update retail_organizations set
     channel_codes=(select array(select distinct unnest(coalesce(channel_codes,'{}'::text[])||${row.channel_codes}))),
     categories=(select array(select distinct unnest(coalesce(categories,'{}'::text[])||${row.categories}))),
@@ -37,14 +37,14 @@ async function upsertOrganization(tx,row){
     domain=case when domain='' then ${row.domain} else domain end,headquarters=case when headquarters='' then ${row.headquarters} else headquarters end,
     footprint=case when coalesce(footprint,0)=0 then ${row.footprint} else footprint end,ecommerce=ecommerce or ${row.ecommerce},
     source_url=case when source_url='' then ${row.source_url} else source_url end,last_verified=greatest(last_verified,${row.last_verified_at}),
-    confidence=greatest(coalesce(confidence,0),${row.confidence}),updated_at=now() where id=${existing.id} returning *`)[0];
-  return (await tx`insert into retail_organizations(name,domain,organization_type,channel_codes,categories,coverage,region,headquarters,footprint,ecommerce,verification_status,source_url,last_verified,confidence,updated_at) values(${row.name},${row.domain},${row.organization_type},${row.channel_codes},${row.categories},${row.coverage},${row.region},${row.headquarters},${row.footprint},${row.ecommerce},${row.verification_status},${row.source_url},${row.last_verified_at},${row.confidence},now()) on conflict(lower(name)) do update set channel_codes=(select array(select distinct unnest(coalesce(retail_organizations.channel_codes,'{}'::text[])||excluded.channel_codes))),categories=(select array(select distinct unnest(coalesce(retail_organizations.categories,'{}'::text[])||excluded.categories))),updated_at=now() returning *`)[0];
+    confidence=greatest(coalesce(confidence,0),${row.confidence}),active=true,updated_at=now() where id=${existing.id} returning *`)[0];
+  return (await tx`insert into retail_organizations(name,domain,organization_type,channel_codes,categories,coverage,region,headquarters,footprint,ecommerce,verification_status,source_url,last_verified,confidence,active,updated_at) values(${row.name},${row.domain},${row.organization_type},${row.channel_codes},${row.categories},${row.coverage},${row.region},${row.headquarters},${row.footprint},${row.ecommerce},${row.verification_status},${row.source_url},${row.last_verified_at},${row.confidence},true,now()) on conflict(lower(name)) do update set channel_codes=(select array(select distinct unnest(coalesce(retail_organizations.channel_codes,'{}'::text[])||excluded.channel_codes))),categories=(select array(select distinct unnest(coalesce(retail_organizations.categories,'{}'::text[])||excluded.categories))),active=true,updated_at=now() returning *`)[0];
 }
 
 async function upsertAccount(tx,row,organization){
-  const existing=(await tx`select * from accounts where active=true and (organization_id=${organization.id} or lower(name)=lower(${row.name}) or lower(regexp_replace(domain,'^www\\.',''))=${normalized(row.domain)}) order by case when organization_id=${organization.id} then 0 else 1 end,updated_at desc limit 1`)[0]||null;
-  if(existing)return (await tx`update accounts set organization_id=coalesce(organization_id,${organization.id}),type=case when type='' or type='retailer' then ${row.organization_type} else type end,domain=case when domain='' then ${row.domain} else domain end,category=case when category='' then 'Pharmacy' else category end,source_url=case when source_url='' then ${row.source_url} else source_url end,confidence=greatest(coalesce(confidence,0),${row.confidence}),last_verified_at=greatest(last_verified_at,${row.last_verified_at}),updated_at=now() where id=${existing.id} returning *`)[0];
-  return (await tx`insert into accounts(name,type,coverage,region,domain,category,potential,score,notes,source,organization_id,source_url,observed_at,last_verified_at,confidence,evidence_type,verification_status,updated_at) values(${row.name},${row.organization_type},${row.coverage},${row.region},${row.domain},'Pharmacy',0,0,'Public independent and small-chain pharmacy catalog; 100 locations or fewer.','small_pharmacy_catalog',${organization.id},${row.source_url},${row.last_verified_at},${row.last_verified_at},${row.confidence},'retailer_profile','VERIFIED',now()) on conflict(lower(name)) do update set organization_id=coalesce(accounts.organization_id,excluded.organization_id),updated_at=now() returning *`)[0];
+  const existing=(await tx`select * from accounts where organization_id=${organization.id} or lower(name)=lower(${row.name}) or lower(regexp_replace(domain,'^www\\.',''))=${normalized(row.domain)} order by case when organization_id=${organization.id} then 0 else 1 end,active desc,updated_at desc limit 1`)[0]||null;
+  if(existing)return (await tx`update accounts set organization_id=coalesce(organization_id,${organization.id}),type=case when type='' or type='retailer' then ${row.organization_type} else type end,domain=case when domain='' then ${row.domain} else domain end,category=case when category='' then 'Pharmacy' else category end,source_url=case when source_url='' then ${row.source_url} else source_url end,confidence=greatest(coalesce(confidence,0),${row.confidence}),last_verified_at=greatest(last_verified_at,${row.last_verified_at}),active=true,updated_at=now() where id=${existing.id} returning *`)[0];
+  return (await tx`insert into accounts(name,type,coverage,region,domain,category,potential,score,notes,source,organization_id,source_url,observed_at,last_verified_at,confidence,evidence_type,verification_status,active,updated_at) values(${row.name},${row.organization_type},${row.coverage},${row.region},${row.domain},'Pharmacy',0,0,'Public independent and small-chain pharmacy catalog; 100 locations or fewer.','small_pharmacy_catalog',${organization.id},${row.source_url},${row.last_verified_at},${row.last_verified_at},${row.confidence},'retailer_profile','VERIFIED',true,now()) on conflict(lower(name)) do update set organization_id=coalesce(accounts.organization_id,excluded.organization_id),active=true,updated_at=now() returning *`)[0];
 }
 
 async function insertBuyer(tx,row,account,organization,contact){
@@ -58,14 +58,14 @@ async function insertBuyer(tx,row,account,organization,contact){
   return {status:'added',buyer:buyerRow};
 }
 
-async function commitCatalog(sql,tenant){
+export async function commitSmallPharmacyCatalog(sql,tenant=null){
   const result={accounts_added:0,accounts_enriched:0,buyers_added:0,buyer_duplicates_prevented:0,buyer_conflicts:0};
   return sql.begin(async tx=>{
     await tx`insert into channels(code,name,description,active) values('independent_pharmacy','Independent & Small-Chain Pharmacies','Independent pharmacies and pharmacy chains with no more than 100 locations',true) on conflict(code) do update set name=excluded.name,description=excluded.description,active=true`;
     for(const row of SMALL_PHARMACY_CATALOG){
       const before=(await tx`select id from retail_organizations where active=true and (lower(name)=lower(${row.name}) or lower(regexp_replace(domain,'^www\\.',''))=${normalized(row.domain)}) limit 1`)[0],organization=await upsertOrganization(tx,row),account=await upsertAccount(tx,row,organization);
       if(before)result.accounts_enriched++;else result.accounts_added++;
-      await runLivingIntelligencePipeline({account_id:account.id,organization_id:organization.id,source_url:row.source_url,source_type:'official_company',publisher:row.name,domain:row.domain,subject_type:'retailer_profile',subject_key:`${organization.id}:small_pharmacy_profile`,evidence_type:'retailer_profile',payload:{name:row.name,domain:row.domain,headquarters:row.headquarters,footprint:row.footprint,channel_codes:row.channel_codes,categories:row.categories},observed_at:row.last_verified_at,last_verified_at:row.last_verified_at,confidence:row.confidence,verification_status:'VERIFIED',acquired_by:'small_pharmacy_catalog'},{sql:tx,manufacturer_id:tenant.tenant_id});
+      await runLivingIntelligencePipeline({account_id:account.id,organization_id:organization.id,source_url:row.source_url,source_type:'official_company',publisher:row.name,domain:row.domain,subject_type:'retailer_profile',subject_key:`${organization.id}:small_pharmacy_profile`,evidence_type:'retailer_profile',payload:{name:row.name,domain:row.domain,headquarters:row.headquarters,footprint:row.footprint,channel_codes:row.channel_codes,categories:row.categories},observed_at:row.last_verified_at,last_verified_at:row.last_verified_at,confidence:row.confidence,verification_status:'VERIFIED',acquired_by:'small_pharmacy_catalog'},{sql:tx,manufacturer_id:tenant?.tenant_id||null});
       for(const contact of row.buyers){const outcome=await insertBuyer(tx,row,account,organization,contact);if(outcome.status==='added')result.buyers_added++;else if(outcome.status==='duplicate')result.buyer_duplicates_prevented++;else result.buyer_conflicts++}
     }
     await tx`insert into retail_universe_import_runs(source_name,rows_seen,rows_imported,status,errors,finished_at) values(${`Small pharmacy catalog ${SMALL_PHARMACY_CATALOG_VERSION}`},${SMALL_PHARMACY_CATALOG.length},${result.accounts_added+result.accounts_enriched},'complete','[]'::jsonb,now())`;
@@ -82,9 +82,9 @@ export default async function handler(req,res){
   const sql=db();
   try{
     const plan=await buildSmallPharmacyImportPlan(sql);
-    if(req.method==='GET')return res.status(200).json({...plan,commit_required:true,policy:'Preview only. No account or buyer data has been changed.'});
+    if(req.method==='GET')return res.status(200).json({...plan,commit_required:true,policy:'Read-only reconciliation preview. The catalog is also linked once by the additive application seed.'});
     const previewHash=clean(req.body?.preview_hash,100);if(!previewHash)return res.status(409).json({error:'Preview the pharmacy import before committing it'});
     if(previewHash!==plan.preview_hash)return res.status(409).json({error:'The pharmacy import preview is stale; preview it again before committing'});
-    const committed=await commitCatalog(sql,tenant);return res.status(200).json({version:SMALL_PHARMACY_CATALOG_VERSION,channel:'independent_pharmacy',committed:true,...committed});
+    const committed=await commitSmallPharmacyCatalog(sql,tenant);return res.status(200).json({version:SMALL_PHARMACY_CATALOG_VERSION,channel:'independent_pharmacy',committed:true,...committed});
   }catch(error){console.error('small pharmacy import failed',{message:error?.message||String(error)});return res.status(500).json({error:'The pharmacy account import could not be completed; no partial batch was committed'})}
 }
