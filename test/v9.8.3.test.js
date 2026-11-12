@@ -38,6 +38,7 @@ import { authoritativeCategory, authoritativeIdentity, buyerImportRecordKey, imp
 import { BUYER_INTELLIGENCE_IMPORT_SQL } from '../api/db-init-buyer-intelligence-import.js';
 import { easternScheduleParts, isMondayNineEastern, weeklyBuyerReportHtml } from '../api/buyer-intelligence-weekly-report.js';
 import { buyerReportDeliveryConfig } from '../api/_buyer-report-delivery.js';
+import { SMALL_PHARMACY_CATALOG, SMALL_PHARMACY_CATALOG_VERSION, smallPharmacyCatalogHash, validateSmallPharmacyCatalog } from '../api/_small-pharmacy-catalog.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -1167,6 +1168,50 @@ test('Account Universe exposes a dedicated Alcohol Distributors channel section'
   assert.match(appShell,/\/executive-workflow-ui\.js/);
   assert.doesNotMatch(runtimeUi,/<option value="beer_distributor">/);
   assert.match(baseUi,/channel=\$\{ch\}/);
+});
+
+test('Account Universe exposes Pharmacy as a top-level dropdown category in both UI layers',async()=>{
+  const [baseUi,runtimeUi,appShell,migration]=await Promise.all([
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8')
+  ]);
+  const pharmacyOption=/<option value="independent_pharmacy">Pharmacy — Independent &amp; Small-Chain<\/option>/;
+  assert.match(baseUi,pharmacyOption);assert.match(runtimeUi,pharmacyOption);
+  assert.doesNotMatch(baseUi,/<optgroup label="Pharmacies">/);assert.doesNotMatch(runtimeUi,/<optgroup label="Pharmacies">/);
+  assert.match(baseUi,/\['independent_pharmacy','Independent & Small-Chain Pharmacies'\]/);
+  assert.match(migration,/\('independent_pharmacy','Independent & Small-Chain Pharmacies'\)/);
+  assert.match(appShell,/\/small-pharmacy-ui\.js/);
+});
+
+test('small pharmacy catalog is sourced, deduplicated, capped at 100 locations, and does not infer contacts',()=>{
+  assert.equal(SMALL_PHARMACY_CATALOG_VERSION,'2026-11-11-v1');
+  assert.equal(SMALL_PHARMACY_CATALOG.length,12);
+  assert.deepEqual(validateSmallPharmacyCatalog(),[]);
+  assert.match(smallPharmacyCatalogHash(),/^[a-f0-9]{64}$/);
+  assert.equal(new Set(SMALL_PHARMACY_CATALOG.map(row=>row.domain)).size,SMALL_PHARMACY_CATALOG.length);
+  for(const row of SMALL_PHARMACY_CATALOG){
+    assert.ok(row.footprint>=1&&row.footprint<=100,row.name);
+    assert.ok(row.channel_codes.includes('independent_pharmacy'),row.name);
+    assert.match(row.source_url,/^https:\/\//);assert.ok(row.buyers.length>0,row.name);
+    for(const buyer of row.buyers){assert.match(buyer.source_url,/^https:\/\//);assert.equal(buyer.public_email,undefined);assert.equal(buyer.public_phone,undefined);assert.equal(buyer.email,undefined);assert.equal(buyer.phone,undefined);if(buyer.category_verification_status==='VERIFIED'){assert.ok(buyer.category_scope);assert.match(buyer.category_evidence_url,/^https:\/\//)}}
+  }
+  assert.equal(SMALL_PHARMACY_CATALOG.flatMap(row=>row.buyers).filter(buyer=>buyer.category_verification_status==='VERIFIED').length,2);
+});
+
+test('small pharmacy bulk import is admin-gated, preview-first, transactional, and additive',async()=>{
+  const [route,ui]=await Promise.all([readFile(new URL('../api/small-pharmacy-import.js',import.meta.url),'utf8'),readFile(new URL('../small-pharmacy-ui.js',import.meta.url),'utf8')]);
+  assert.match(route,/CAPABILITIES\.TENANT_SECURITY/);assert.match(route,/req\.method==='GET'/);assert.match(route,/preview_hash/);assert.match(route,/preview is stale/);assert.match(route,/sql\.begin/);
+  assert.match(route,/DUPLICATE_PREVENTED/);assert.match(route,/CONFLICTING_ACCOUNT/);assert.match(route,/appendBuyerRelationship/);assert.match(route,/runLivingIntelligencePipeline/);
+  assert.doesNotMatch(route,/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i);
+  assert.match(ui,/api\/small-pharmacy-import/);assert.match(ui,/Approve & Add Pharmacy Accounts/);assert.match(ui,/preview_hash/);assert.match(ui,/Public owners and executives are not represented as category buyers/);
+});
+
+test('small pharmacy UI commits the exact reviewed preview and refreshes Account Universe',async()=>{
+  const source=await readFile(new URL('../small-pharmacy-ui.js',import.meta.url),'utf8'),calls=[],elements={modalCard:{innerHTML:''},modal:{classList:{add(){}}},commitSmallPharmacyBtn:{disabled:false,textContent:''}},context=createContext({window:null,state:{},$:id=>elements[id]||null,esc:value=>String(value??''),toast(){},show(){},setTimeout,Number,String,JSON,console,load:async()=>{context.loaded=true},api:async(url,options={})=>{calls.push({url,method:options.method||'GET',body:options.body?JSON.parse(options.body):null});if(options.method==='POST')return {accounts_added:1,accounts_enriched:0,buyers_added:1,buyer_duplicates_prevented:0};return {preview_hash:'reviewed-hash',summary:{accounts_to_add:1,accounts_to_enrich:0,buyers_to_add:1,buyer_duplicates_prevented:0,buyer_conflicts:0},rows:[{name:'Example Pharmacy',domain:'example.test',footprint:1,account_action:'ADD_ACCOUNT',source_url:'https://example.test/about',buyers:[{name:'Pat Owner',title:'Owner',action:'ADD_BUYER'}]}]}}});context.window=context;
+  runInContext(source,context);await context.openSmallPharmacyImport();assert.deepEqual(calls[0],{url:'/api/small-pharmacy-import',method:'GET',body:null});assert.match(elements.modalCard.innerHTML,/Preview only/);
+  await context.commitSmallPharmacyImport('reviewed-hash');assert.equal(calls[1].url,'/api/small-pharmacy-import');assert.equal(calls[1].method,'POST');assert.deepEqual(calls[1].body,{preview_hash:'reviewed-hash'});assert.equal(context.loaded,true);
 });
 
 test('weekly retailer discovery retains only attributable candidates and deduplicates domains',()=>{
