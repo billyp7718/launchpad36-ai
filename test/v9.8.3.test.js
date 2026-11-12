@@ -1170,15 +1170,16 @@ test('Account Universe exposes a dedicated Alcohol Distributors channel section'
   assert.match(baseUi,/channel=\$\{ch\}/);
 });
 
-test('Account Universe exposes an independent and small-chain pharmacy section in both UI layers',async()=>{
+test('Account Universe exposes Pharmacy as a top-level dropdown category in both UI layers',async()=>{
   const [baseUi,runtimeUi,appShell,migration]=await Promise.all([
     readFile(new URL('../index.html',import.meta.url),'utf8'),
     readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8'),
     readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),
     readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8')
   ]);
-  const pharmacySection=/<optgroup label="Pharmacies"><option value="independent_pharmacy">Independent &amp; Small-Chain Pharmacies<\/option><\/optgroup>/;
-  assert.match(baseUi,pharmacySection);assert.match(runtimeUi,pharmacySection);
+  const pharmacyOption=/<option value="independent_pharmacy">Pharmacy — Independent &amp; Small-Chain<\/option>/;
+  assert.match(baseUi,pharmacyOption);assert.match(runtimeUi,pharmacyOption);
+  assert.doesNotMatch(baseUi,/<optgroup label="Pharmacies">/);assert.doesNotMatch(runtimeUi,/<optgroup label="Pharmacies">/);
   assert.match(baseUi,/\['independent_pharmacy','Independent & Small-Chain Pharmacies'\]/);
   assert.match(migration,/\('independent_pharmacy','Independent & Small-Chain Pharmacies'\)/);
   assert.match(appShell,/\/small-pharmacy-ui\.js/);
