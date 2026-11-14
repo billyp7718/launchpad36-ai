@@ -8,7 +8,7 @@ const clean=(value,max=180)=>String(value??'').trim().slice(0,max);
 const dateOrNull=value=>{const text=clean(value,40);return text&&!Number.isNaN(Date.parse(text))?new Date(text).toISOString():null};
 
 export default async function handler(req,res){
-  const tenant=await resolveTenant(req,res,{enforceWriteCapability:false});if(!tenant)return;
+  const tenant=await resolveTenant(req,res,{enforceWriteCapability:false,requiredSection:null});if(!tenant)return;
   const sql=db();
   try{
     await ensureIdentitySchema(sql);

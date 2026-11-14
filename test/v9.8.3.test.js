@@ -23,7 +23,7 @@ import { createReportSnapshot,loadReportSnapshot } from '../api/market-report-sn
 import { buildTargetAssortment,calculateSkuAnnualRevenue,competitiveOfferingRelevant } from '../api/opportunities.js';
 import { CAPABILITIES, ROLES, canonicalRole, hasCapability, managerMayGrant, requireCapability, roleCapabilities, teamScopeIncludes } from '../api/_permissions.js';
 import { canSeeAllTenantData } from '../api/_tenant.js';
-import { isPermanentAdminEmail, PERMANENT_ADMIN_EMAILS } from '../api/_identity.js';
+import { APPLICATION_SECTIONS, hasApplicationSectionAccess, isPermanentAdminEmail, normalizeApplicationSection, PERMANENT_ADMIN_EMAILS } from '../api/_identity.js';
 import { safeAuditValue } from '../api/_permission-audit.js';
 import { calculateTrustScore, trustLevel } from '../api/_trust-score.js';
 import { evaluateProductIdentityMatch, normalizeIdentifier } from '../api/_product-identity.js';
@@ -219,6 +219,46 @@ test('designated permanent administrator cannot be downgraded',async()=>{
   assert.match(ui,/PERMANENT ADMIN/);
 });
 
+test('application sections are additive, normalized, and preserve existing Consumer Goods access',async()=>{
+  assert.deepEqual(APPLICATION_SECTIONS.map(section=>section.key),['consumer_goods','commercial_goods','services']);
+  assert.equal(normalizeApplicationSection(' Commercial_Goods '),'commercial_goods');
+  assert.equal(normalizeApplicationSection('unknown'),'');
+  assert.equal(hasApplicationSectionAccess([{key:'services',granted:true}],'services'),true);
+  assert.equal(hasApplicationSectionAccess([{key:'services',granted:false}],'services'),false);
+  const [identity,migration]=await Promise.all([readFile(new URL('../api/_identity.js',import.meta.url),'utf8'),readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8')]);
+  for(const source of [identity,migration]){
+    const start=source.indexOf('create table if not exists manufacturer_member_section_access'),end=source.indexOf('create table if not exists permission_audit_events',start),section=source.slice(start,end);
+    assert.ok(start>=0);assert.match(section,/section_key in\('consumer_goods','commercial_goods','services'\)/);
+    assert.match(section,/select manufacturer_id,id,'consumer_goods',true,now\(\) from manufacturer_members/);
+    assert.match(section,/on conflict\(manufacturer_id,member_id,section_key\) do nothing/);
+    assert.doesNotMatch(section,/drop\s+(table|column)|truncate|delete\s+from|update\s+manufacturer_members/i);
+  }
+});
+
+test('section access is enforced server-side and exposed through the authenticated session',async()=>{
+  const [tenant,session,route]=await Promise.all([readFile(new URL('../api/_tenant.js',import.meta.url),'utf8'),readFile(new URL('../api/auth-session.js',import.meta.url),'utf8'),readFile(new URL('../api/section-access.js',import.meta.url),'utf8')]);
+  assert.match(tenant,/requiredSection='consumer_goods'/);assert.match(tenant,/hasApplicationSectionAccess\(sections,sectionKey\)/);
+  assert.match(tenant,/code:'SECTION_ACCESS_REQUIRED'/);assert.match(session,/memberSectionAccess\(member,sql\)/);assert.match(session,/sections/);
+  assert.match(route,/requiredSection:null/);assert.match(route,/normalizeApplicationSection/);assert.match(route,/SECTION_ACCESS_REQUIRED/);assert.match(route,/allowed_sections/);
+});
+
+test('only Administrators can grant application sections and every change is audited',async()=>{
+  const [apiSource,auditApi,statusApi,ui]=await Promise.all([readFile(new URL('../api/team-admin.js',import.meta.url),'utf8'),readFile(new URL('../api/permission-audit.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../multi-user-ui.js',import.meta.url),'utf8')]);
+  assert.match(apiSource,/requiredSection:null/);assert.match(auditApi,/requiredSection:null/);assert.match(statusApi,/manufacturer_member_section_access/);
+  assert.match(apiSource,/action==='set_section_access'/);assert.match(apiSource,/if\(!isTenantAdmin\)/);assert.match(apiSource,/Only Administrators can change application section access/);
+  assert.match(apiSource,/USER_SECTION_ACCESS_CHANGED/);assert.match(apiSource,/previous_value:\{section_key:sectionKey,granted:previous\}/);assert.match(apiSource,/new_value:\{section_key:sectionKey,granted\}/);
+  assert.match(apiSource,/Select at least one application section/);assert.match(apiSource,/manufacturer_member_section_access/);
+  for(const marker of ['Application section access','Consumer Goods','Commercial Goods','Services','l36SetSectionAccess','set_section_access'])assert.match(ui,new RegExp(marker));
+});
+
+test('top-right section selector shows only authorized sections and leaves Consumer Goods intact',async()=>{
+  const [ui,shell]=await Promise.all([readFile(new URL('../section-access-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')]);
+  assert.match(shell,/section-access-ui\.js/);assert.match(ui,/authButton\?\.parentElement/);assert.match(ui,/host\.insertBefore\(wrapper,host\.firstChild\)/);
+  assert.match(ui,/profile\?\.sections/);assert.match(ui,/access\.granted/);assert.match(ui,/api\/section-access\?section_key=/);
+  assert.match(ui,/activeSection==='consumer_goods'/);assert.match(ui,/original\.render\?\.\(\)/);assert.match(ui,/Commercial Goods workspace foundation/);assert.match(ui,/Services workspace foundation/);
+  assert.doesNotMatch(ui,/state\.portfolio\s*=|state\.orgs\s*=|state\.workspaces\s*=/);
+});
+
 test('Evidence Explorer and Health Check authorize the current database role',async()=>{
   const [tenant,session,evidenceStatus,systemStatus]=await Promise.all([
     readFile(new URL('../api/_tenant.js',import.meta.url),'utf8'),
@@ -284,7 +324,7 @@ test('user administration audits successful and denied privilege operations',asy
   assert.match(source,/result:'SUCCESS'/);assert.match(source,/result:'DENIED'/);assert.match(source,/result:'FAILED'/);
   assert.match(source,/previous_value:/);assert.match(source,/new_value:/);
   assert.match(source,/Target user is outside this tenant/);
-  assert.match(source,/resolveTenant\(req,res,\{enforceWriteCapability:false\}\)/);
+  assert.match(source,/resolveTenant\(req,res,\{enforceWriteCapability:false,requiredSection:null\}\)/);
   assert.match(tenantSource,/enforceWriteCapability=true/);
   assert.doesNotMatch(source,/target_user:requestedTarget\|\|\{id:memberId\}/);
   assert.doesNotMatch(source,/target_team:targetTeam\|\|\{id:teamId\}/);

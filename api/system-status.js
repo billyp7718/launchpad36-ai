@@ -4,6 +4,7 @@ import { buyerReportDeliveryConfig } from './_buyer-report-delivery.js';
 
 const REQUIRED_TABLES = [
   'manufacturers',
+  'manufacturer_member_section_access',
   'accounts',
   'products',
   'evidence_sources',
