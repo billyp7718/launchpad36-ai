@@ -42,6 +42,7 @@ import { SMALL_PHARMACY_CATALOG, SMALL_PHARMACY_CATALOG_VERSION, smallPharmacyCa
 import { commercialAccountPreviewHash, COMMERCIAL_ACCOUNT_CATEGORIES, normalizeCommercialAccountRecord, normalizeCommercialCategory, normalizeCommercialSubcategory } from '../api/_commercial-accounts.js';
 import { COMMERCIAL_FITNESS_PREVIEW } from '../api/_commercial-fitness-preview.js';
 import { COMMERCIAL_HOTELS_PREVIEW } from '../api/_commercial-hotels-preview.js';
+import { normalizeCommercialContactResearch } from '../api/_commercial-contact-research.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -271,7 +272,8 @@ test('Commercial Goods Accounts includes Healthcare Fitness and Hospitality Hote
   const [sectionUi,accountUi,shell]=await Promise.all([readFile(new URL('../section-access-ui.js',import.meta.url),'utf8'),readFile(new URL('../commercial-goods-accounts-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')]);
   for(const marker of ['Commercial Goods','Accounts','Healthcare','Government','Small Business','Hospitality','Large Corporations'])assert.match(sectionUi,new RegExp(marker));
   assert.match(sectionUi,/l36OpenCommercialScreen/);assert.match(sectionUi,/l36RenderCommercialAccounts/);assert.match(accountUi,/COMMERCIAL GOODS · LEAD GENERATION/);assert.match(sectionUi,/Fitness accounts/);
-  for(const marker of ['Healthcare · Fitness','Hospitality · Hotels','Preview Gym Accounts','Preview Hotel Accounts','l36FilterCommercialFitness','l36FilterCommercialHotels','commercialAccountSubcategory'])assert.match(accountUi,new RegExp(marker.replace('·','\\·')));
+  for(const marker of ['Healthcare · Fitness','Hospitality · Hotels','l36FilterCommercialFitness','l36FilterCommercialHotels','commercialAccountSubcategory'])assert.match(accountUi,new RegExp(marker.replace('·','\\·')));
+  assert.doesNotMatch(accountUi,/>Preview Gym Accounts</);assert.doesNotMatch(accountUi,/>Preview Hotel Accounts</);
   assert.match(shell,/commercial-goods-accounts-ui\.js/);assert.ok(shell.indexOf('commercial-goods-accounts-ui.js')<shell.indexOf('section-access-ui.js'));
   assert.doesNotMatch(sectionUi,/api\/account-universe|state\.orgs/);assert.doesNotMatch(accountUi,/api\/account-universe|state\.orgs/);
 });
@@ -296,6 +298,17 @@ test('Commercial Goods account import is tenant scoped, preview-first and additi
   assert.match(helper,/pg_advisory_xact_lock/);assert.match(apiSource,/requiredSection:'commercial_goods'/);assert.match(apiSource,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(apiSource,/rows\.length>500/);assert.match(apiSource,/action==='preview'/);assert.match(apiSource,/action==='commit'/);assert.match(apiSource,/preview_hash/);assert.match(apiSource,/category_counts:categoryCounts/);assert.match(apiSource,/group by account_category/);
   for(const marker of ['Download Template','Add Account','Import Accounts','Decision Maker','Preview Accounts','Approve & Import','launchpad36-commercial-accounts-decision-makers-template.csv'])assert.match(ui,new RegExp(marker));
   assert.doesNotMatch(ui,/Buyer Contact|Buyer Title|Buyer Email/);
+});
+
+test('Commercial Goods Deep Search is searchable, tenant scoped and contact-evidence safe',async()=>{
+  const identity='https://examplefitness.com/leadership',contact='https://examplefitness.com/contact',payload={output:[{type:'web_search_call',action:{sources:[{url:identity,title:'Leadership'},{url:contact,title:'Contact'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({status:'SUCCESS',search_summary:'Current facilities contact found.',candidates:[{name:'Jordan Lee',title:'Director of Facilities',current_employer:'Example Fitness Group',department:'Facilities',responsibility_scope:'Club facilities and equipment',decision_role:'FACILITIES',identity_confidence:91,responsibility_confidence:88,source_url:identity,source_title:'Leadership',evidence_quote:'Jordan Lee directs club facilities.',evidence_date:'2026-11-15',email:'jordan@examplefitness.com',phone:'303-555-0100',linkedin:'https://www.linkedin.com/in/jordan-lee-example',contact_source_url:contact,contact_evidence_quote:'Facilities: jordan@examplefitness.com, 303-555-0100',rationale:'Published facilities responsibility.'},{name:'Unpublished Contact',title:'Procurement Manager',current_employer:'Example Fitness Group',department:'Procurement',responsibility_scope:'Procurement',decision_role:'PROCUREMENT',identity_confidence:82,responsibility_confidence:75,source_url:identity,source_title:'Leadership',evidence_quote:'Procurement Manager at Example Fitness Group.',evidence_date:'2026-11-15',email:'guessed@examplefitness.com',phone:'303-555-0199',linkedin:'',contact_source_url:contact,contact_evidence_quote:'Use the general contact form.',rationale:'Identity source only.'}]})}]}]};
+  const normalized=normalizeCommercialContactResearch(payload,{account:'Example Fitness Group'});assert.equal(normalized.status,'SUCCESS');assert.equal(normalized.candidates.length,2);assert.equal(normalized.candidates[0].email,'jordan@examplefitness.com');assert.equal(normalized.candidates[0].phone,'303-555-0100');assert.equal(normalized.candidates[0].linkedin,'');assert.equal(normalized.candidates[1].email,'');assert.equal(normalized.candidates[1].phone,'');
+  const [route,accountsApi,ui,vercel]=await Promise.all([readFile(new URL('../api/commercial-account-deep-search.js',import.meta.url),'utf8'),readFile(new URL('../api/commercial-accounts.js',import.meta.url),'utf8'),readFile(new URL('../commercial-goods-accounts-ui.js',import.meta.url),'utf8'),readFile(new URL('../vercel.json',import.meta.url),'utf8')]);
+  assert.match(route,/requiredSection:'commercial_goods'/);assert.match(route,/CAPABILITIES\.DEEP_SEARCH/);assert.match(route,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(route,/searchCommercialContacts/);assert.doesNotMatch(route,/OPENAI_API_KEY|authorization:/);
+  assert.match(accountsApi,/action==='save_decision_maker'/);assert.match(accountsApi,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(accountsApi,/COMMERCIAL_DECISION_MAKER_SAVED/);assert.match(accountsApi,/verification_status='REVIEW_REQUIRED'/);
+  for(const marker of ['cgDeepAccountQ','cgDeepFocus','Deep Search Account Contacts','Deep Search Contacts','api/commercial-account-deep-search','Save Contact','No public email found','No public phone found'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/permissions\?\.capabilities\?\.includes\('DEEP_SEARCH'\)/);assert.match(ui,/action:'save_decision_maker'/);assert.match(ui,/Private emails and phone numbers are never inferred/);
+  assert.equal(JSON.parse(vercel).functions['api/commercial-account-deep-search.js'].maxDuration,240);
 });
 
 test('Fitness starter catalog is source-backed, contact-safe and preview-only',async()=>{
