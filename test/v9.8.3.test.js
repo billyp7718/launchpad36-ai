@@ -192,8 +192,13 @@ test('workspace administration opens the existing application modal',async()=>{
   assert.doesNotMatch(ui,/document\.body\.appendChild\(host\)/);
 });
 
-test('Retail Revenue hero renders opaque and refreshes after deferred UI enhancement',async()=>{
+test('Find Me Revenue hero uses account language, renders opaque, and refreshes after deferred UI enhancement',async()=>{
   const ui=await readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8');
+  const start=ui.indexOf('window.dashboard='),hero=ui.slice(start,ui.indexOf('requestAnimationFrame',start));
+  assert.match(hero,/ACCOUNT REVENUE INTELLIGENCE/);
+  assert.match(hero,/Find the next account, buyer and revenue opportunity/);
+  assert.match(hero,/Accounts, distributors & dealers/);
+  assert.doesNotMatch(hero,/\bretail(?:er)?s?\b/i);
   assert.match(ui,/hero l36-revenue-hero/);
   assert.match(ui,/\.l36-revenue-hero\{opacity:1;filter:none;background-color:#071d3e/);
   assert.match(ui,/isolation:isolate;contain:paint/);
