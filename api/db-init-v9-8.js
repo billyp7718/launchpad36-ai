@@ -21,6 +21,19 @@ create table if not exists manufacturer_teams(
 );
 create unique index if not exists manufacturer_teams_name_uq on manufacturer_teams(manufacturer_id,lower(name));
 
+create table if not exists manufacturer_member_section_access(
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ member_id uuid not null references manufacturer_members(id) on delete cascade,
+ section_key text not null check(section_key in('consumer_goods','commercial_goods','services')),
+ granted boolean not null default false, granted_by uuid references manufacturer_members(id) on delete set null,
+ granted_at timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+ unique(manufacturer_id,member_id,section_key)
+);
+create index if not exists manufacturer_member_section_access_idx on manufacturer_member_section_access(manufacturer_id,member_id,section_key,granted);
+insert into manufacturer_member_section_access(manufacturer_id,member_id,section_key,granted,granted_at)
+ select manufacturer_id,id,'consumer_goods',true,now() from manufacturer_members
+ on conflict(manufacturer_id,member_id,section_key) do nothing;
+
 create table if not exists permission_audit_events(
  id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete restrict,
  actor_user_id uuid references manufacturer_members(id) on delete restrict, actor_name text not null default '', actor_role text not null default '',

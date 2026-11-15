@@ -3,8 +3,16 @@ import { db } from './_db.js';
 
 let schemaReady;
 export const PERMANENT_ADMIN_EMAILS=Object.freeze(['wtpantaleo@gmail.com','billp@launchpad36.com']);
+export const APPLICATION_SECTIONS=Object.freeze([
+ {key:'consumer_goods',label:'Consumer Goods'},
+ {key:'commercial_goods',label:'Commercial Goods'},
+ {key:'services',label:'Services'}
+]);
+const APPLICATION_SECTION_KEYS=new Set(APPLICATION_SECTIONS.map(section=>section.key));
 export function isPermanentAdminEmail(value=''){return PERMANENT_ADMIN_EMAILS.includes(String(value||'').trim().toLowerCase())}
 export function normalizeRole(value='member'){const role=String(value||'member').toLowerCase();return role==='owner'?'admin':['admin','manager','member','viewer'].includes(role)?role:'member'}
+export function normalizeApplicationSection(value=''){const key=String(value||'').trim().toLowerCase();return APPLICATION_SECTION_KEYS.has(key)?key:''}
+export function hasApplicationSectionAccess(sections=[],sectionKey=''){const key=normalizeApplicationSection(sectionKey);return Boolean(key&&sections.some(section=>section?.key===key&&section?.granted===true))}
 export function hashPassword(password=''){const value=String(password);if(value.length<8)throw Object.assign(new Error('Password must be at least 8 characters'),{status:400});const salt=crypto.randomBytes(16).toString('hex');const hash=crypto.scryptSync(value,salt,64).toString('hex');return `scrypt$${salt}$${hash}`}
 export function verifyPassword(password='',encoded=''){try{const [type,salt,expected]=String(encoded).split('$');if(type!=='scrypt'||!salt||!expected)return false;const actual=crypto.scryptSync(String(password),salt,64);const target=Buffer.from(expected,'hex');return actual.length===target.length&&crypto.timingSafeEqual(actual,target)}catch{return false}}
 
@@ -28,6 +36,18 @@ export async function ensureIdentitySchema(sql=db()){
   await sql`update manufacturer_members set role='member' where lower(role) not in('admin','manager','member','viewer')`;
   await sql`update manufacturer_members set role='admin',updated_at=now() where lower(email)=any(${PERMANENT_ADMIN_EMAILS}::text[]) and lower(role)<>'admin'`;
   await sql`create table if not exists manufacturer_team_members(team_id uuid not null references manufacturer_teams(id) on delete cascade,member_id uuid not null references manufacturer_members(id) on delete cascade,role text not null default 'member',created_at timestamptz not null default now(),primary key(team_id,member_id))`;
+  await sql`create table if not exists manufacturer_member_section_access(
+    id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+    member_id uuid not null references manufacturer_members(id) on delete cascade,
+    section_key text not null check(section_key in('consumer_goods','commercial_goods','services')),
+    granted boolean not null default false, granted_by uuid references manufacturer_members(id) on delete set null,
+    granted_at timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+    unique(manufacturer_id,member_id,section_key)
+  )`;
+  await sql`create index if not exists manufacturer_member_section_access_idx on manufacturer_member_section_access(manufacturer_id,member_id,section_key,granted)`;
+  await sql`insert into manufacturer_member_section_access(manufacturer_id,member_id,section_key,granted,granted_at)
+    select manufacturer_id,id,'consumer_goods',true,now() from manufacturer_members
+    on conflict(manufacturer_id,member_id,section_key) do nothing`;
   await sql`alter table products add column if not exists owner_user_id uuid references manufacturer_members(id) on delete set null`;
   await sql`alter table products add column if not exists team_id uuid references manufacturer_teams(id) on delete set null`;
   await sql`alter table products add column if not exists visibility text not null default 'tenant'`;
@@ -76,4 +96,14 @@ export async function memberTeams(memberId,sql=db()){
  if(!memberId)return [];
  await ensureIdentitySchema(sql);
  return await sql`select t.id,t.name,tm.role from manufacturer_team_members tm join manufacturer_teams t on t.id=tm.team_id where tm.member_id=${memberId} and t.active=true order by t.name`;
+}
+
+export async function memberSectionAccess(member={},sql=db()){
+ await ensureIdentitySchema(sql);
+ const admin=normalizeRole(member.role)==='admin';
+ if(admin)return APPLICATION_SECTIONS.map(section=>({...section,granted:true,source:'ADMIN'}));
+ if(!member.id)return APPLICATION_SECTIONS.map(section=>({...section,granted:false,source:'NONE'}));
+ const rows=await sql`select section_key,granted from manufacturer_member_section_access where manufacturer_id=${member.manufacturer_id} and member_id=${member.id}`;
+ const grants=new Map(rows.map(row=>[String(row.section_key),row.granted===true]));
+ return APPLICATION_SECTIONS.map(section=>({...section,granted:grants.get(section.key)===true,source:'EXPLICIT'}));
 }
