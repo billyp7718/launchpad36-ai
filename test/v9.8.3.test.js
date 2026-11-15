@@ -260,8 +260,16 @@ test('top-right section selector shows only authorized sections and leaves Consu
   const [ui,shell]=await Promise.all([readFile(new URL('../section-access-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')]);
   assert.match(shell,/section-access-ui\.js/);assert.match(ui,/authButton\?\.parentElement/);assert.match(ui,/host\.insertBefore\(wrapper,host\.firstChild\)/);
   assert.match(ui,/profile\?\.sections/);assert.match(ui,/access\.granted/);assert.match(ui,/api\/section-access\?section_key=/);
-  assert.match(ui,/activeSection==='consumer_goods'/);assert.match(ui,/original\.render\?\.\(\)/);assert.match(ui,/Commercial Goods workspace foundation/);assert.match(ui,/Services workspace foundation/);
+  assert.match(ui,/activeSection==='consumer_goods'/);assert.match(ui,/original\.render\?\.\(\)/);assert.match(ui,/Commercial account planning organized by business segment/);assert.match(ui,/Services workspace foundation/);
   assert.doesNotMatch(ui,/state\.portfolio\s*=|state\.orgs\s*=|state\.workspaces\s*=/);
+});
+
+test('Commercial Goods Accounts is organized into the requested business categories',async()=>{
+  const ui=await readFile(new URL('../section-access-ui.js',import.meta.url),'utf8');
+  for(const marker of ['Commercial Goods','Accounts','Healthcare','Government','Small Business','Hospitality','Large Corporations'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/l36OpenCommercialScreen/);assert.match(ui,/renderCommercialAccounts/);assert.match(ui,/data-account-category/);
+  assert.match(ui,/Account data will remain separate from Consumer Goods/);
+  assert.doesNotMatch(ui,/api\/account-universe|state\.orgs/);
 });
 
 test('Evidence Explorer and Health Check authorize the current database role',async()=>{
