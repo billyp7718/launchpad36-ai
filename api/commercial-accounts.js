@@ -4,6 +4,7 @@ import { CAPABILITIES, requireCapability } from './_permissions.js';
 import { commercialAccountPreviewHash, COMMERCIAL_ACCOUNT_CATEGORIES, ensureCommercialAccountSchema, normalizeCommercialAccountRecord, normalizeCommercialCategory, normalizeCommercialSubcategory } from './_commercial-accounts.js';
 
 const clean=(value,max=300)=>String(value??'').replace(/\s+/g,' ').trim().slice(0,max);
+const uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value||''));
 function prepareRows(rows=[]){
  const records=[],rejected=[],duplicates=[],seenNames=new Set(),seenDomains=new Set();
  for(let index=0;index<rows.length;index++)try{
@@ -61,6 +62,16 @@ export default async function handler(req,res){
   }
   if(action==='commit'){
    const rows=Array.isArray(req.body?.records)?req.body.records:[];if(!rows.length||rows.length>500)return res.status(400).json({error:'Preview between 1 and 500 commercial accounts before import'});const prepared=prepareRows(rows),expected=commercialAccountPreviewHash(prepared.records);if(!req.body?.preview_hash||req.body.preview_hash!==expected)return res.status(409).json({error:'The commercial account import changed after preview. Preview it again before approval.'});const result=await commitRows(sql,tenant,prepared.records,{sourceName:req.body?.source_name||'Commercial account import',previewHash:expected,rejected:prepared.rejected});return res.status(201).json(result);
+  }
+  if(action==='save_decision_maker'){
+   const accountId=clean(req.body?.commercial_account_id,80);if(!uuid(accountId))return res.status(400).json({error:'Choose a valid Commercial Goods account'});
+   const account=(await sql`select * from commercial_accounts where id=${accountId} and manufacturer_id=${tenant.tenant_id} and active=true limit 1`)[0];if(!account)return res.status(404).json({error:'Commercial Goods account was not found'});
+   const candidate=req.body?.candidate||{},record=normalizeCommercialAccountRecord({name:account.name,website:account.website||account.domain,account_category:account.account_category,account_subcategory:account.account_subcategory,decision_maker_name:candidate.name,decision_maker_title:candidate.title,decision_maker_department:candidate.department,decision_maker_category:candidate.responsibility_scope,decision_maker_email:candidate.email,decision_maker_phone:candidate.phone,decision_maker_linkedin:candidate.linkedin,decision_maker_source_url:candidate.contact_source_url||candidate.source_url,decision_maker_confidence:candidate.identity_confidence,decision_maker_verification_status:'REVIEW_REQUIRED'}),maker=record.decision_maker;if(!maker?.source_url)return res.status(400).json({error:'A public source URL is required before saving a decision maker'});
+   const prior=(await sql`select id from commercial_decision_makers where commercial_account_id=${account.id} and manufacturer_id=${tenant.tenant_id} and lower(name)=lower(${maker.name}) and lower(title)=lower(${maker.title}) limit 1`)[0];let saved;
+   if(prior)saved=(await sql`update commercial_decision_makers set department=case when ${maker.department}<>'' then ${maker.department} else department end,category_scope=case when ${maker.category_scope}<>'' then ${maker.category_scope} else category_scope end,email=case when ${maker.email}<>'' then ${maker.email} else email end,phone=case when ${maker.phone}<>'' then ${maker.phone} else phone end,linkedin=case when ${maker.linkedin}<>'' then ${maker.linkedin} else linkedin end,source_url=${maker.source_url},verification_status='REVIEW_REQUIRED',confidence=greatest(confidence,${maker.confidence}),updated_at=now() where id=${prior.id} and manufacturer_id=${tenant.tenant_id} returning *`)[0];
+   else saved=(await sql`insert into commercial_decision_makers(manufacturer_id,commercial_account_id,name,title,department,category_scope,email,phone,linkedin,source_url,verification_status,confidence) values(${tenant.tenant_id},${account.id},${maker.name},${maker.title},${maker.department},${maker.category_scope},${maker.email},${maker.phone},${maker.linkedin},${maker.source_url},'REVIEW_REQUIRED',${maker.confidence}) returning *`)[0];
+   await sql`insert into tenant_activity_log(manufacturer_id,user_id,action,subject_type,subject_id,metadata) values(${tenant.tenant_id},${tenant.user_id},'COMMERCIAL_DECISION_MAKER_SAVED','commercial_decision_maker',${saved.id},${sql.json({commercial_account_id:account.id,source_url:maker.source_url,deep_search:true})})`;
+   return res.status(prior?200:201).json({decision_maker:saved,created:!prior});
   }
   if(action==='add'){
    const record=normalizeCommercialAccountRecord(req.body?.record||{}),result=await commitRows(sql,tenant,[record],{sourceName:'manual entry',previewHash:commercialAccountPreviewHash([record])});return res.status(201).json(result);

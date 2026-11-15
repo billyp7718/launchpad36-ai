@@ -3,6 +3,7 @@
     "api/account-research.js": { "maxDuration": 240 },
     "api/buyer-intelligence.js": { "maxDuration": 240 },
     "api/buyer-deep-search.js": { "maxDuration": 240 },
+    "api/commercial-account-deep-search.js": { "maxDuration": 240 },
     "api/buyer-research-runner.js": { "maxDuration": 240 },
     "api/buyer-research-runner-tick.js": { "maxDuration": 240 }
   },
