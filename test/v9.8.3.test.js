@@ -39,6 +39,9 @@ import { BUYER_INTELLIGENCE_IMPORT_SQL } from '../api/db-init-buyer-intelligence
 import { easternScheduleParts, isMondayNineEastern, weeklyBuyerReportHtml } from '../api/buyer-intelligence-weekly-report.js';
 import { buyerReportDeliveryConfig } from '../api/_buyer-report-delivery.js';
 import { SMALL_PHARMACY_CATALOG, SMALL_PHARMACY_CATALOG_VERSION, smallPharmacyCatalogHash, validateSmallPharmacyCatalog } from '../api/_small-pharmacy-catalog.js';
+import { commercialAccountPreviewHash, COMMERCIAL_ACCOUNT_CATEGORIES, normalizeCommercialAccountRecord, normalizeCommercialCategory, normalizeCommercialSubcategory } from '../api/_commercial-accounts.js';
+import { COMMERCIAL_FITNESS_PREVIEW } from '../api/_commercial-fitness-preview.js';
+import { COMMERCIAL_HOTELS_PREVIEW } from '../api/_commercial-hotels-preview.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -264,12 +267,59 @@ test('top-right section selector shows only authorized sections and leaves Consu
   assert.doesNotMatch(ui,/state\.portfolio\s*=|state\.orgs\s*=|state\.workspaces\s*=/);
 });
 
-test('Commercial Goods Accounts is organized into the requested business categories',async()=>{
-  const ui=await readFile(new URL('../section-access-ui.js',import.meta.url),'utf8');
-  for(const marker of ['Commercial Goods','Accounts','Healthcare','Government','Small Business','Hospitality','Large Corporations'])assert.match(ui,new RegExp(marker));
-  assert.match(ui,/l36OpenCommercialScreen/);assert.match(ui,/renderCommercialAccounts/);assert.match(ui,/data-account-category/);
-  assert.match(ui,/Account data will remain separate from Consumer Goods/);
-  assert.doesNotMatch(ui,/api\/account-universe|state\.orgs/);
+test('Commercial Goods Accounts includes Healthcare Fitness and Hospitality Hotels subsections',async()=>{
+  const [sectionUi,accountUi,shell]=await Promise.all([readFile(new URL('../section-access-ui.js',import.meta.url),'utf8'),readFile(new URL('../commercial-goods-accounts-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')]);
+  for(const marker of ['Commercial Goods','Accounts','Healthcare','Government','Small Business','Hospitality','Large Corporations'])assert.match(sectionUi,new RegExp(marker));
+  assert.match(sectionUi,/l36OpenCommercialScreen/);assert.match(sectionUi,/l36RenderCommercialAccounts/);assert.match(accountUi,/COMMERCIAL GOODS · LEAD GENERATION/);assert.match(sectionUi,/Fitness accounts/);
+  for(const marker of ['Healthcare · Fitness','Hospitality · Hotels','Preview Gym Accounts','Preview Hotel Accounts','l36FilterCommercialFitness','l36FilterCommercialHotels','commercialAccountSubcategory'])assert.match(accountUi,new RegExp(marker.replace('·','\\·')));
+  assert.match(shell,/commercial-goods-accounts-ui\.js/);assert.ok(shell.indexOf('commercial-goods-accounts-ui.js')<shell.indexOf('section-access-ui.js'));
+  assert.doesNotMatch(sectionUi,/api\/account-universe|state\.orgs/);assert.doesNotMatch(accountUi,/api\/account-universe|state\.orgs/);
+});
+
+test('Commercial Goods account intake normalizes categories and Decision Maker fields deterministically',()=>{
+  assert.deepEqual(COMMERCIAL_ACCOUNT_CATEGORIES.map(category=>category.key),['healthcare','government','small_business','hospitality','large_corporations']);
+  assert.equal(normalizeCommercialCategory('Small Business'),'small_business');assert.equal(normalizeCommercialCategory('Enterprise'),'large_corporations');assert.equal(normalizeCommercialCategory('Retail'),'');
+  assert.equal(normalizeCommercialSubcategory('Gym','healthcare'),'fitness');assert.equal(normalizeCommercialSubcategory('Hotel Chain','hospitality'),'hotels');assert.equal(normalizeCommercialSubcategory('Fitness','government'),'');
+  const record=normalizeCommercialAccountRecord({'Account Name':'Northstar Health','Domain':'northstar.example','Account Category':'Healthcare','Account Subcategory':'Fitness','Decision Maker':'Jamie Chen','Decision Maker Title':'Director of Procurement','Decision Maker Department':'Strategic Sourcing','Decision Maker Category':'Facilities Technology','Decision Maker Email':'jamie@northstar.example'});
+  assert.equal(record.name,'Northstar Health');assert.equal(record.account_category,'healthcare');assert.equal(record.account_subcategory,'fitness');assert.equal(record.decision_maker.name,'Jamie Chen');assert.equal(record.decision_maker.title,'Director of Procurement');assert.equal(record.decision_maker.department,'Strategic Sourcing');
+  assert.deepEqual(normalizeCommercialAccountRecord(record),record);
+  assert.equal(commercialAccountPreviewHash([record]),commercialAccountPreviewHash([record]));
+  assert.throws(()=>normalizeCommercialAccountRecord({'Account Name':'Incomplete','Account Category':'Healthcare','Decision Maker':'Missing Title'}),/supplied together/);
+  assert.throws(()=>normalizeCommercialAccountRecord({'Account Name':'Wrong section','Account Category':'Government','Account Subcategory':'Fitness'}),/Fitness under Healthcare or Hotels under Hospitality/);
+});
+
+test('Commercial Goods account import is tenant scoped, preview-first and additively migrated',async()=>{
+  const [migration,helper,apiSource,ui,status]=await Promise.all([readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8'),readFile(new URL('../api/_commercial-accounts.js',import.meta.url),'utf8'),readFile(new URL('../api/commercial-accounts.js',import.meta.url),'utf8'),readFile(new URL('../commercial-goods-accounts-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8')]);
+  const start=migration.indexOf('create table if not exists commercial_accounts'),end=migration.indexOf('create table if not exists permission_audit_events',start),section=migration.slice(start,end);assert.ok(start>=0);
+  for(const table of ['commercial_accounts','commercial_decision_makers','commercial_account_import_runs']){assert.match(section,new RegExp(`create table if not exists ${table}`));assert.match(status,new RegExp(table))}
+  assert.match(section,/commercial_accounts_tenant_name_uq/);assert.match(section,/commercial_accounts_tenant_subcategory_idx/);assert.match(section,/commercial_decision_makers_account_identity_uq/);assert.match(section,/add column if not exists account_subcategory/);assert.doesNotMatch(section,/drop\s+(table|column)|truncate|delete\s+from|update\s+(accounts|buyers|retail_organizations)/i);
+  assert.match(helper,/pg_advisory_xact_lock/);assert.match(apiSource,/requiredSection:'commercial_goods'/);assert.match(apiSource,/manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(apiSource,/rows\.length>500/);assert.match(apiSource,/action==='preview'/);assert.match(apiSource,/action==='commit'/);assert.match(apiSource,/preview_hash/);assert.match(apiSource,/category_counts:categoryCounts/);assert.match(apiSource,/group by account_category/);
+  for(const marker of ['Download Template','Add Account','Import Accounts','Decision Maker','Preview Accounts','Approve & Import','launchpad36-commercial-accounts-decision-makers-template.csv'])assert.match(ui,new RegExp(marker));
+  assert.doesNotMatch(ui,/Buyer Contact|Buyer Title|Buyer Email/);
+});
+
+test('Fitness starter catalog is source-backed, contact-safe and preview-only',async()=>{
+  assert.equal(COMMERCIAL_FITNESS_PREVIEW.length,12);assert.equal(new Set(COMMERCIAL_FITNESS_PREVIEW.map(record=>record.domain)).size,12);
+  assert.ok(COMMERCIAL_FITNESS_PREVIEW.filter(record=>record.decision_maker_name).length>=10);
+  for(const row of COMMERCIAL_FITNESS_PREVIEW){
+    const normalized=normalizeCommercialAccountRecord(row);assert.equal(normalized.account_category,'healthcare');assert.equal(normalized.account_subcategory,'fitness');assert.match(normalized.source_url,/^https:\/\//);assert.equal(normalized.verification_status,'REVIEW_REQUIRED');assert.equal(row.decision_maker_email,undefined);assert.equal(row.decision_maker_phone,undefined);
+    if(normalized.decision_maker){assert.match(normalized.decision_maker.source_url,/^https:\/\//);assert.equal(normalized.decision_maker.email,'');assert.equal(normalized.decision_maker.phone,'')}
+  }
+  const [route,ui]=await Promise.all([readFile(new URL('../api/commercial-fitness-preview.js',import.meta.url),'utf8'),readFile(new URL('../commercial-goods-accounts-ui.js',import.meta.url),'utf8')]);
+  assert.match(route,/requiredSection:'commercial_goods'/);assert.match(route,/CAPABILITIES\.APP_WRITE/);assert.match(route,/req\.method!=='GET'/);assert.doesNotMatch(route,/insert\s+into|update\s+commercial|delete\s+from/i);
+  assert.match(ui,/api\/commercial-fitness-preview/);assert.match(ui,/action:'preview'/);assert.match(ui,/Approve & Import/);assert.match(ui,/Nothing is saved until you approve this preview/);
+});
+
+test('Hotels starter catalog is source-backed, contact-safe and preview-only',async()=>{
+  assert.equal(COMMERCIAL_HOTELS_PREVIEW.length,12);assert.equal(new Set(COMMERCIAL_HOTELS_PREVIEW.map(record=>record.domain)).size,12);
+  assert.ok(COMMERCIAL_HOTELS_PREVIEW.filter(record=>record.decision_maker_name).length>=7);
+  for(const row of COMMERCIAL_HOTELS_PREVIEW){
+    const normalized=normalizeCommercialAccountRecord(row);assert.equal(normalized.account_category,'hospitality');assert.equal(normalized.account_subcategory,'hotels');assert.match(normalized.source_url,/^https:\/\//);assert.equal(normalized.verification_status,'REVIEW_REQUIRED');assert.equal(row.decision_maker_email,undefined);assert.equal(row.decision_maker_phone,undefined);
+    if(normalized.decision_maker){assert.match(normalized.decision_maker.source_url,/^https:\/\//);assert.equal(normalized.decision_maker.email,'');assert.equal(normalized.decision_maker.phone,'')}
+  }
+  const [route,ui]=await Promise.all([readFile(new URL('../api/commercial-hotels-preview.js',import.meta.url),'utf8'),readFile(new URL('../commercial-goods-accounts-ui.js',import.meta.url),'utf8')]);
+  assert.match(route,/requiredSection:'commercial_goods'/);assert.match(route,/CAPABILITIES\.APP_WRITE/);assert.match(route,/req\.method!=='GET'/);assert.doesNotMatch(route,/insert\s+into|update\s+commercial|delete\s+from/i);
+  assert.match(ui,/api\/commercial-hotels-preview/);assert.match(ui,/Hospitality Hotels source-backed starter list/);assert.match(ui,/Approve & Import/);
 });
 
 test('Evidence Explorer and Health Check authorize the current database role',async()=>{

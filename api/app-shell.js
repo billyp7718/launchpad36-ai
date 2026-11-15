@@ -21,6 +21,7 @@ export default async function handler(req,res){
       '/buyer-intelligence-updates-ui.js',
       '/assortment-intelligence-ui.js',
       '/multi-user-ui.js',
+      '/commercial-goods-accounts-ui.js',
       '/section-access-ui.js',
       '/phase2-tenancy-ui.js',
       '/crm-export-ui.js',

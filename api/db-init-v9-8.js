@@ -34,6 +34,43 @@ insert into manufacturer_member_section_access(manufacturer_id,member_id,section
  select manufacturer_id,id,'consumer_goods',true,now() from manufacturer_members
  on conflict(manufacturer_id,member_id,section_key) do nothing;
 
+create table if not exists commercial_accounts(
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ name text not null, domain text not null default '', website text not null default '',
+ account_category text not null check(account_category in('healthcare','government','small_business','hospitality','large_corporations')), account_subcategory text not null default '',
+ organization_type text not null default 'commercial_account', headquarters text not null default '', region text not null default '',
+ location_count integer not null default 0, notes text not null default '', source_type text not null default 'manual', source_url text not null default '',
+ verification_status text not null default 'UNCONFIRMED', confidence integer not null default 0,
+ active boolean not null default true, created_by uuid references manufacturer_members(id) on delete set null,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+alter table commercial_accounts add column if not exists account_subcategory text not null default '';
+create unique index if not exists commercial_accounts_tenant_name_uq on commercial_accounts(manufacturer_id,lower(name));
+create index if not exists commercial_accounts_tenant_category_idx on commercial_accounts(manufacturer_id,account_category,active,name);
+create index if not exists commercial_accounts_tenant_subcategory_idx on commercial_accounts(manufacturer_id,account_category,account_subcategory,active,name);
+create index if not exists commercial_accounts_tenant_domain_idx on commercial_accounts(manufacturer_id,lower(domain)) where domain<>'';
+
+create table if not exists commercial_decision_makers(
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ commercial_account_id uuid not null references commercial_accounts(id) on delete cascade,
+ name text not null, title text not null, department text not null default '', category_scope text not null default '',
+ email text not null default '', phone text not null default '', linkedin text not null default '', source_url text not null default '',
+ verification_status text not null default 'UNCONFIRMED', confidence integer not null default 0, active boolean not null default true,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create unique index if not exists commercial_decision_makers_account_identity_uq on commercial_decision_makers(commercial_account_id,lower(name),lower(title));
+create index if not exists commercial_decision_makers_tenant_account_idx on commercial_decision_makers(manufacturer_id,commercial_account_id,active,updated_at desc);
+
+create table if not exists commercial_account_import_runs(
+ id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+ source_name text not null default '', preview_hash text not null default '', rows_seen integer not null default 0,
+ accounts_added integer not null default 0, accounts_updated integer not null default 0, decision_makers_added integer not null default 0,
+ duplicates_prevented integer not null default 0, rows_rejected integer not null default 0, status text not null default 'started',
+ errors jsonb not null default '[]'::jsonb, created_by uuid references manufacturer_members(id) on delete set null,
+ created_at timestamptz not null default now(), finished_at timestamptz
+);
+create index if not exists commercial_account_import_runs_tenant_idx on commercial_account_import_runs(manufacturer_id,created_at desc);
+
 create table if not exists permission_audit_events(
  id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete restrict,
  actor_user_id uuid references manufacturer_members(id) on delete restrict, actor_name text not null default '', actor_role text not null default '',
