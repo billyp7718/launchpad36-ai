@@ -584,7 +584,7 @@ test('slow navigation tabs expose and reliably clear an accessible loading graph
   assert.match(source,/class="pageLoadingSpinner" aria-hidden="true"/);
   assert.match(source,/\.pageLoadingSpinner,.navSpinner/);
   assert.match(source,/content\.setAttribute\('aria-busy',active\?'true':'false'\)/);
-  assert.match(source,/loaders=\{'System Status':loadSystemStatus,'Evidence':loadEvidence,'Buyers':loadBuyerAccount,'Opportunities':loadOpportunityWorkspaces\}/);
+  assert.match(source,/loaders=\{'System Status':loadSystemStatus,'Evidence':loadEvidence,'Buyers':loadBuyerAccount,'Opportunities':loadOpportunityWorkspaces,'Revenue Missions':\(\)=>window\.loadRevenueMissions/);
   assert.match(source,/\.finally\(\(\)=>\{if\(token===tabLoadToken\)setTabLoading\(false,n\)\}\)/);
 });
 
@@ -1332,6 +1332,12 @@ test('small pharmacy UI commits the exact reviewed preview and refreshes Account
   await context.commitSmallPharmacyImport('reviewed-hash');assert.equal(calls[1].url,'/api/small-pharmacy-import');assert.equal(calls[1].method,'POST');assert.deepEqual(calls[1].body,{preview_hash:'reviewed-hash'});assert.equal(context.loaded,true);
 });
 
+test('Account Universe hides the pharmacy import action without removing the protected workflow',async()=>{
+  const [index,ui,route]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../small-pharmacy-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/small-pharmacy-import.js',import.meta.url),'utf8')]);
+  assert.doesNotMatch(index,/>Add Pharmacy Accounts</);assert.doesNotMatch(index,/openSmallPharmacyImport\(\).*Add Pharmacy/);
+  assert.match(ui,/window\.openSmallPharmacyImport/);assert.match(route,/CAPABILITIES\.TENANT_SECURITY/);
+});
+
 test('weekly retailer discovery retains only attributable candidates and deduplicates domains',()=>{
   const source='https://www.example-retailer.com/about';
   const payload={output:[{type:'web_search_call',action:{sources:[{url:source,title:'About Example Retailer'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({status:'FOUND',search_summary:'One candidate',retailers:[{name:'Example Retailer',official_domain:'example-retailer.com',organization_type:'retailer',channels:['specialty retail'],categories:['Consumer Electronics'],coverage:'National',region:'US',headquarters:'Austin, Texas',footprint:40,ecommerce:true,source_url:source,source_title:'About',evidence_quote:'Specialty consumer electronics retailer',confidence:82},{name:'Duplicate Banner',official_domain:'example-retailer.com',organization_type:'retailer',channels:[],categories:[],coverage:'',region:'',headquarters:'',footprint:0,ecommerce:true,source_url:source,source_title:'About',evidence_quote:'Retailer',confidence:60}]})}]}]};
@@ -1650,6 +1656,8 @@ test('Find Me Revenue renders mission progress from existing opportunity workspa
   const [ui,shell,index]=await Promise.all([readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
   for(const marker of ['REVENUE MISSIONS','Create Revenue Mission','Target','Identified','Qualified','Buyer Confirmed','Remaining Gap','Confidence-adjusted','L36 Trust','Human approval is required','currentOpportunityIds'])assert.match(ui,new RegExp(marker,'i'));
   assert.match(ui,/state\.marketOpportunity\?\.workspaces/);
+  assert.match(index,/const NAV=\[[^\]]*'Revenue Missions'/);assert.match(index,/'Revenue Missions':\(\)=>window\.loadRevenueMissions/);assert.match(index,/'Revenue Missions':\(\)=>window\.revenueMissions/);
+  assert.match(ui,/window\.revenueMissions=function/);assert.doesNotMatch(ui,/const baseMarket=|window\.market=function/);
   assert.match(ui,/\/api\/revenue-missions/);assert.doesNotMatch(ui,/mailto:|sendEmail|automatic.{0,20}(email|contact)/i);assert.match(shell,/revenue-missions-ui\.js/);assert.match(index,/db-init-revenue-missions/);
 });
 
