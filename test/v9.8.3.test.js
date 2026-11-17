@@ -950,6 +950,27 @@ test('buyer and evidence interfaces are account-scoped and mobile-safe',async()=
   assert.match(source,/font-size:16px/);assert.match(source,/min-height:44px/);assert.match(source,/-webkit-overflow-scrolling:touch/);
 });
 
+test('Account Universe searches buyer category server-side and lists category separately',async()=>{
+  const [ui,workflowUi,coverageUi,apiSource]=await Promise.all([
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../buyer-coverage-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/account-universe.js',import.meta.url),'utf8')
+  ]);
+  for(const source of [ui,workflowUi]){
+    assert.match(source,/id="acctBuyerCategory"/);
+    assert.match(source,/placeholder="Search buyer category"/);
+  }
+  assert.match(ui,/buyer_category=\$\{buyerCategory\}/);
+  assert.match(coverageUi,/<th>Buyer Category<\/th>/);
+  assert.match(coverageUi,/listed\.map\(b=>`<div>\$\{esc\(buyerCategory\(b\)\)\}<\/div>`/);
+  assert.match(apiSource,/buyerCategory=clean\(req\.query\?\.buyer_category,120\)/);
+  assert.match(apiSource,/exists\(\s*select 1 from accounts buyer_account join buyers buyer_filter/);
+  for(const field of ['category_scope','subcategory_scope','category'])assert.match(apiSource,new RegExp(`buyer_filter\\.${field}`));
+  assert.match(apiSource,/mat\.manufacturer_id=\$\{tenant\.tenant_id\}/);
+  assert.match(apiSource,/buyer_category:buyerCategory/);
+});
+
 test('account research exposes progress and prevents duplicate submissions',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   for(const marker of ['progressTrack','researchProgress','researchElapsed','accountResearchRunning','Research Running…'])assert.match(source,new RegExp(marker));
