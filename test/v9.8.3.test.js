@@ -950,6 +950,45 @@ test('buyer and evidence interfaces are account-scoped and mobile-safe',async()=
   assert.match(source,/font-size:16px/);assert.match(source,/min-height:44px/);assert.match(source,/-webkit-overflow-scrolling:touch/);
 });
 
+test('Account Universe searches buyer category server-side and lists category separately',async()=>{
+  const [ui,workflowUi,coverageUi,apiSource]=await Promise.all([
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../buyer-coverage-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../api/account-universe.js',import.meta.url),'utf8')
+  ]);
+  for(const source of [ui,coverageUi]){
+    assert.match(source,/id="acctBuyerCategory"/);
+    assert.match(source,/placeholder="Search buyer category"/);
+  }
+  assert.doesNotMatch(workflowUi,/window\.accounts=function|window\.accountTable=function/);
+  assert.match(ui,/buyer_category=\$\{buyerCategory\}/);
+  assert.match(coverageUi,/<th>Buyer Category<\/th>/);
+  assert.match(coverageUi,/categories=\[\.\.\.new Set\(buyers\.map\(buyerCategory\)/);
+  assert.match(apiSource,/buyerCategory=clean\(req\.query\?\.buyer_category,120\)/);
+  assert.match(apiSource,/exists\(\s*select 1 from accounts buyer_account join buyers buyer_filter/);
+  for(const field of ['category_scope','subcategory_scope','category'])assert.match(apiSource,new RegExp(`buyer_filter\\.${field}`));
+  assert.match(apiSource,/mat\.manufacturer_id=\$\{tenant\.tenant_id\}/);
+  assert.match(apiSource,/buyer_category:buyerCategory/);
+});
+
+test('executive workflow preserves filters and centers account work in Account 360',async()=>{
+  const [ui,coverage,workflow]=await Promise.all([
+    readFile(new URL('../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../buyer-coverage-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8')
+  ]);
+  for(const marker of ['accountFilters','opportunityFilters','marketDraft','captureUiState','restoreUiState','clearAccountFilters','clearOpportunityFilters'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/event\.key==='Enter'.*acctBuyerCategory/);
+  assert.match(ui,/state\.ui\.marketDraft=\{product_ids/);
+  assert.match(coverage,/window\.accounts=function/);assert.match(coverage,/Add Accounts ▾/);assert.match(coverage,/Open Account 360/);
+  const grid=coverage.match(/window\.accountTable=function[\s\S]*?(?=\n\s*window\.refreshAllAccountBuyers)/)?.[0]||'';
+  for(const heading of ['Account','Channel / Locations','Fit','Annual Opportunity','Buyers','Buyer Category','Next Action'])assert.match(grid,new RegExp(`<th>${heading.replace('/','\\/')}<\\/th>`));
+  assert.doesNotMatch(grid,/<th>Email<\/th>|<th>Phone<\/th>|<th>Head Office<\/th>/);
+  assert.match(ui,/Open Buyer Workspace in Account 360/);assert.match(ui,/function openSelectedBuyerAccount/);
+  assert.doesNotMatch(workflow,/window\.accounts=function|window\.accountTable=function|Add Pharmacy Accounts/);
+});
+
 test('account research exposes progress and prevents duplicate submissions',async()=>{
   const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
   for(const marker of ['progressTrack','researchProgress','researchElapsed','accountResearchRunning','Research Running…'])assert.match(source,new RegExp(marker));
@@ -1107,12 +1146,15 @@ test('account opportunity headers sort the full result stably with unknown value
   assert.match(source,/marketSortHeader\('account','Account'\)/);assert.match(source,/marketSortHeader\('annual','Annual Opportunity'\)/);assert.match(source,/marketSortHeader\('fit','Fit Score'\)/);assert.match(source,/aria-sort/);assert.match(source,/_marketSourceIndex/);
 });
 
-test('market intelligence replaces the redundant find me revenue interface',async()=>{
-  const source=await readFile(new URL('../index.html',import.meta.url),'utf8');
+test('Find Me Revenue is the canonical navigation and route label',async()=>{
+  const [source,workflow]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8')]);
   const nav=source.match(/const NAV=\[[^\]]+\]/)?.[0]||'';
-  assert.doesNotMatch(nav,/Find Me Revenue/);
-  assert.doesNotMatch(source,/show\('Find Me Revenue'\)/);
-  assert.match(source,/Analyze Market Opportunity/);
+  assert.match(nav,/Find Me Revenue/);
+  assert.doesNotMatch(nav,/Market Intelligence/);
+  assert.doesNotMatch(source,/show\('Market Intelligence'\)|'Market Intelligence':market/);
+  assert.match(source,/'Find Me Revenue':market/);
+  assert.match(workflow,/show\('Find Me Revenue'\)/);
+  assert.doesNotMatch(workflow,/renameNav|MutationObserver\(renameNav\)/);
 });
 
 test('broad account categories match related product families',()=>{
@@ -1275,13 +1317,13 @@ test('account information can be edited without replacing its organization id',a
 test('Account Universe exposes a dedicated Alcohol Distributors channel section',async()=>{
   const [baseUi,runtimeUi,appShell]=await Promise.all([
     readFile(new URL('../index.html',import.meta.url),'utf8'),
-    readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../buyer-coverage-ui.js',import.meta.url),'utf8'),
     readFile(new URL('../api/app-shell.js',import.meta.url),'utf8')
   ]);
   const alcoholSection=/<optgroup label="Alcohol Distribution"><option value="alcohol_distributor">Alcohol Distributors<\/option><\/optgroup>/;
   assert.match(baseUi,alcoholSection);
   assert.match(runtimeUi,alcoholSection);
-  assert.match(appShell,/\/executive-workflow-ui\.js/);
+  assert.match(appShell,/\/buyer-coverage-ui\.js/);
   assert.doesNotMatch(runtimeUi,/<option value="beer_distributor">/);
   assert.match(baseUi,/channel=\$\{ch\}/);
 });
@@ -1289,7 +1331,7 @@ test('Account Universe exposes a dedicated Alcohol Distributors channel section'
 test('Account Universe exposes Pharmacy as a top-level dropdown category in both UI layers',async()=>{
   const [baseUi,runtimeUi,appShell,migration]=await Promise.all([
     readFile(new URL('../index.html',import.meta.url),'utf8'),
-    readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8'),
+    readFile(new URL('../buyer-coverage-ui.js',import.meta.url),'utf8'),
     readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),
     readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8')
   ]);
@@ -1333,8 +1375,8 @@ test('small pharmacy UI commits the exact reviewed preview and refreshes Account
 });
 
 test('Account Universe hides the pharmacy import action without removing the protected workflow',async()=>{
-  const [index,ui,route]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../small-pharmacy-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/small-pharmacy-import.js',import.meta.url),'utf8')]);
-  assert.doesNotMatch(index,/>Add Pharmacy Accounts</);assert.doesNotMatch(index,/openSmallPharmacyImport\(\).*Add Pharmacy/);
+  const [index,workflow,coverage,ui,route]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../executive-workflow-ui.js',import.meta.url),'utf8'),readFile(new URL('../buyer-coverage-ui.js',import.meta.url),'utf8'),readFile(new URL('../small-pharmacy-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/small-pharmacy-import.js',import.meta.url),'utf8')]);
+  for(const source of [index,workflow,coverage]){assert.doesNotMatch(source,/>Add Pharmacy Accounts</);assert.doesNotMatch(source,/openSmallPharmacyImport\(\).*Add Pharmacy/)}
   assert.match(ui,/window\.openSmallPharmacyImport/);assert.match(route,/CAPABILITIES\.TENANT_SECURITY/);
 });
 
@@ -1347,7 +1389,7 @@ test('weekly retailer discovery retains only attributable candidates and dedupli
 test('retailer discovery, opportunity alerts and buyer reporting use the scheduled refresh jobs',async()=>{
   const [agent,weekly,living,ui,status,config]=await Promise.all([readFile(new URL('../api/retailer-discovery-agent.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../api/living-intelligence-refresh.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../vercel.json',import.meta.url),'utf8')]);
   assert.match(agent,/searchOpenAIRetailers/);assert.match(agent,/DISCOVERY_CANDIDATE/);assert.match(agent,/runLivingIntelligencePipeline/);assert.match(agent,/where active=true and \(lower\(regexp_replace\(domain/);
-  assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(living,/runOpportunityAlertRefresh/);assert.match(ui,/Discover New Retailers/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
+  assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(living,/runOpportunityAlertRefresh/);assert.match(ui,/Discover New Accounts/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
   const crons=JSON.parse(config).crons;assert.equal(crons.length,4);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-intelligence-weekly-report'&&x.schedule==='0 13,14 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-research-runner-tick'&&x.schedule==='* * * * *'));
 });
 
