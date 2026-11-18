@@ -12,11 +12,11 @@ export default async function handler(req,res){
   if(!requireCapability(tenant,res,capability))return;
   res.setHeader('Cache-Control','no-store, max-age=0');
   if(req.method==='GET'){
-    const sql=db(),account=req.query.account_id||null,organization=req.query.organization_id||null;
-    const rows=organization?await sql`select b.* from buyers b join accounts a on a.id=b.account_id where a.organization_id=${organization} order by (b.category_verification_status='VERIFIED') desc,b.category_confidence desc,b.identity_confidence desc,b.updated_at desc`
-                       :account ? await sql`select * from buyers where account_id=${account} order by (category_verification_status='VERIFIED') desc,category_confidence desc,identity_confidence desc,updated_at desc`
-                       : await sql`select * from buyers order by (category_verification_status='VERIFIED') desc,category_confidence desc,identity_confidence desc,updated_at desc limit 1000`;
-    return res.status(200).json({buyers:rows});
+    const sql=db(),account=req.query.account_id||null,organization=req.query.organization_id||null,q=clean(req.query.q,180),limit=Math.min(Math.max(Number(req.query.limit)||250,1),500);
+    const rows=organization?await sql`select b.*,a.organization_id,coalesce(ro.name,a.name) account_name,coalesce(ro.domain,a.domain) account_domain from buyers b join accounts a on a.id=b.account_id left join retail_organizations ro on ro.id=a.organization_id where a.organization_id=${organization} order by (b.category_verification_status='VERIFIED') desc,b.category_confidence desc,b.identity_confidence desc,b.updated_at desc`
+                       :account ? await sql`select b.*,a.organization_id,coalesce(ro.name,a.name) account_name,coalesce(ro.domain,a.domain) account_domain from buyers b join accounts a on a.id=b.account_id left join retail_organizations ro on ro.id=a.organization_id where b.account_id=${account} order by (b.category_verification_status='VERIFIED') desc,b.category_confidence desc,b.identity_confidence desc,b.updated_at desc`
+                       : await sql`select b.*,a.organization_id,coalesce(ro.name,a.name) account_name,coalesce(ro.domain,a.domain) account_domain from buyers b join accounts a on a.id=b.account_id left join retail_organizations ro on ro.id=a.organization_id where (${q}='' or coalesce(b.name,'') ilike ${'%'+q+'%'} or coalesce(b.title,'') ilike ${'%'+q+'%'} or coalesce(b.department,'') ilike ${'%'+q+'%'} or coalesce(b.category_scope,'') ilike ${'%'+q+'%'} or coalesce(b.subcategory_scope,'') ilike ${'%'+q+'%'} or coalesce(b.category,'') ilike ${'%'+q+'%'} or coalesce(b.buyer_role,'') ilike ${'%'+q+'%'} or coalesce(b.email,'') ilike ${'%'+q+'%'} or coalesce(b.phone,'') ilike ${'%'+q+'%'} or coalesce(ro.name,a.name,'') ilike ${'%'+q+'%'} or coalesce(ro.domain,a.domain,'') ilike ${'%'+q+'%'}) order by (b.category_verification_status='VERIFIED') desc,b.category_confidence desc,b.identity_confidence desc,b.updated_at desc,b.name limit ${limit}`;
+    return res.status(200).json({buyers:rows,count:rows.length,limit,query:q});
   }
   if(req.method==='POST'){
     if(!Array.isArray(req.body)&&req.body?.workspace_id){

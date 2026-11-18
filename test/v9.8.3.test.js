@@ -584,7 +584,7 @@ test('slow navigation tabs expose and reliably clear an accessible loading graph
   assert.match(source,/class="pageLoadingSpinner" aria-hidden="true"/);
   assert.match(source,/\.pageLoadingSpinner,.navSpinner/);
   assert.match(source,/content\.setAttribute\('aria-busy',active\?'true':'false'\)/);
-  assert.match(source,/loaders=\{'System Status':loadSystemStatus,'Evidence':loadEvidence,'Buyers':loadBuyerAccount,'Opportunities':loadOpportunityWorkspaces,'Revenue Missions':\(\)=>window\.loadRevenueMissions/);
+  assert.match(source,/loaders=\{'System Status':loadSystemStatus,'Evidence':loadEvidence,'Buyers':loadBuyerScreen,'Opportunities':loadOpportunityWorkspaces,'Revenue Missions':\(\)=>window\.loadRevenueMissions/);
   assert.match(source,/\.finally\(\(\)=>\{if\(token===tabLoadToken\)setTabLoading\(false,n\)\}\)/);
 });
 
@@ -948,6 +948,21 @@ test('buyer and evidence interfaces are account-scoped and mobile-safe',async()=
   assert.match(source,/id="evidenceAccount"/);assert.match(source,/api\/account-research/);
   assert.match(source,/https:\/\/ is optional/);assert.match(source,/@media\(max-width:760px\)/);
   assert.match(source,/font-size:16px/);assert.match(source,/min-height:44px/);assert.match(source,/-webkit-overflow-scrolling:touch/);
+});
+
+test('Buyer Intelligence searches new and existing saved buyers across the authenticated directory',async()=>{
+  const [ui,route]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/buyers.js',import.meta.url),'utf8')]);
+  for(const marker of ['buyerDirectoryQ','Search Saved Buyers','Search Buyers','Find New Buyers by Account','loadBuyerDirectory','clearBuyerDirectorySearch','buyerDirectoryTableHtml','buyerDirectoryCount'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/placeholder="Search buyer, account, title, department, category, email or phone"/);
+  assert.match(ui,/api\/buyers\?q=\$\{encodeURIComponent\(state\.ui\.buyerFilters\.q\)\}&limit=250/);
+  assert.match(ui,/loaders=\{[^}]*'Buyers':loadBuyerScreen/);
+  assert.match(ui,/<th>Buyer<\/th><th>Account<\/th><th>Department \/ Category<\/th><th>Contact<\/th><th>Verification<\/th>/);
+  assert.match(ui,/data-capability="DEEP_SEARCH" onclick="researchBuyerAccount\(\)">Find New Buyers/);
+  assert.match(route,/req\.method==='GET'\?CAPABILITIES\.APP_READ/);
+  assert.match(route,/q=clean\(req\.query\.q,180\)/);assert.match(route,/limit=Math\.min\(Math\.max\(Number\(req\.query\.limit\)\|\|250,1\),500\)/);
+  assert.match(route,/from buyers b join accounts a on a\.id=b\.account_id left join retail_organizations ro on ro\.id=a\.organization_id/);
+  for(const field of ['b.name','b.title','b.department','b.category_scope','b.subcategory_scope','b.category','b.buyer_role','b.email','b.phone','ro.name','ro.domain'])assert.match(route,new RegExp(field.replace('.','\\.')));
+  assert.match(route,/account_name/);assert.match(route,/account_domain/);
 });
 
 test('Account Universe searches buyer category server-side and lists category separately',async()=>{
@@ -1384,6 +1399,16 @@ test('weekly retailer discovery retains only attributable candidates and dedupli
   const source='https://www.example-retailer.com/about';
   const payload={output:[{type:'web_search_call',action:{sources:[{url:source,title:'About Example Retailer'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({status:'FOUND',search_summary:'One candidate',retailers:[{name:'Example Retailer',official_domain:'example-retailer.com',organization_type:'retailer',channels:['specialty retail'],categories:['Consumer Electronics'],coverage:'National',region:'US',headquarters:'Austin, Texas',footprint:40,ecommerce:true,source_url:source,source_title:'About',evidence_quote:'Specialty consumer electronics retailer',confidence:82},{name:'Duplicate Banner',official_domain:'example-retailer.com',organization_type:'retailer',channels:[],categories:[],coverage:'',region:'',headquarters:'',footprint:0,ecommerce:true,source_url:source,source_title:'About',evidence_quote:'Retailer',confidence:60}]})}]}]};
   const result=normalizeOpenAIRetailers(payload);assert.equal(result.status,'SUCCESS');assert.equal(result.retailers.length,1);assert.equal(result.retailers[0].verification_status,'DISCOVERY_CANDIDATE');assert.equal(result.retailers[0].headquarters,'Austin, Texas');
+});
+
+test('Discover New Accounts accepts a bounded account-type search and preserves evidence review',async()=>{
+  const [ui,coverage,route,research]=await Promise.all([readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../buyer-coverage-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/retailer-discovery-agent.js',import.meta.url),'utf8'),readFile(new URL('../api/_openai-research.js',import.meta.url),'utf8')]);
+  assert.match(ui,/onclick="openAccountDiscovery\(\)">Discover New Accounts/);assert.match(coverage,/onclick="openAccountDiscovery\(\)">Discover New Accounts/);
+  for(const marker of ['openAccountDiscovery','discoveryAccountType','Search account type','Search Account Type','accountDiscoveryResultsHtml'])assert.match(ui,new RegExp(marker));
+  assert.match(ui,/JSON\.stringify\(\{limit,account_type:accountType\}\)/);assert.match(ui,/Enter an account type to search/);
+  assert.match(route,/\{limit=12,accountType=''\}/);assert.match(route,/accountType:clean\(req\.body\?\.account_type\|\|req\.query\?\.account_type,120\)/);assert.match(route,/requested_account_type:requestedAccountType/);
+  assert.match(research,/requested_account_type:requestedAccountType/);assert.match(research,/matches the requested account type/);assert.match(research,/DISCOVERY_CANDIDATE for human review/);
+  assert.doesNotMatch(ui,/account_type:accountType[^}]*verification_status:'VERIFIED'/);
 });
 
 test('retailer discovery, opportunity alerts and buyer reporting use the scheduled refresh jobs',async()=>{
