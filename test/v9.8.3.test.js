@@ -1719,13 +1719,22 @@ test('Revenue Missions allow scoped name and target edits while retaining append
   assert.match(apiSource,/if\(action==='update'\)/);assert.match(apiSource,/positiveMoney\(req\.body\.target_revenue\)/);assert.match(apiSource,/where id=\$\{id\} and manufacturer_id=\$\{tenant\.tenant_id\}/);assert.match(apiSource,/event_type,previous_value,new_value,summary/);assert.match(apiSource,/'UPDATED'/);
 });
 
-test('Find Me Revenue renders mission progress from existing opportunity workspaces',async()=>{
+test('Saved Scenarios renders mission progress without adding it to the Dashboard',async()=>{
   const [ui,shell,index]=await Promise.all([readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8')]);
   for(const marker of ['REVENUE MISSIONS','Create Revenue Mission','Target','Identified','Qualified','Buyer Confirmed','Remaining Gap','Confidence-adjusted','L36 Trust','Human approval is required','currentOpportunityIds'])assert.match(ui,new RegExp(marker,'i'));
   assert.match(ui,/state\.marketOpportunity\?\.workspaces/);
   assert.match(index,/const NAV=\[[^\]]*'Revenue Missions'/);assert.match(index,/'Revenue Missions':\(\)=>window\.loadRevenueMissions/);assert.match(index,/'Revenue Missions':\(\)=>window\.revenueMissions/);
-  assert.match(ui,/window\.revenueMissions=function/);assert.doesNotMatch(ui,/const baseMarket=|window\.market=function/);
+  assert.match(ui,/window\.revenueMissions=function/);assert.match(ui,/const baseOpenMarketScenarios=window\.openMarketScenarios/);assert.match(ui,/savedScenarioRevenueMissions/);assert.match(ui,/panelHtml\(true,'savedScenarioRevenueMissionContent'\)/);
+  assert.doesNotMatch(ui,/const baseDashboard=|window\.dashboard=function|const baseMarket=|window\.market=function/);
   assert.match(ui,/\/api\/revenue-missions/);assert.doesNotMatch(ui,/mailto:|sendEmail|automatic.{0,20}(email|contact)/i);assert.match(shell,/revenue-missions-ui\.js/);assert.match(index,/db-init-revenue-missions/);
+});
+
+test('Saved Scenarios opens with saved analyses and the live Revenue Mission panel',async()=>{
+  const ui=await readFile(new URL('../revenue-missions-ui.js',import.meta.url),'utf8'),modalCard={innerHTML:'',insertAdjacentHTML(_position,html){this.innerHTML+=html}},elements={modalCard},mission={id:'mission-one',name:'Regional Growth',priority:'HIGH',status:'ACTIVE',target_date:'2027-03-31',metrics:{target_revenue:500000,opportunity_count:2,identified_revenue:250000,qualified_pipeline:150000,buyer_confirmed_pipeline:75000,won_revenue:50000,remaining_gap:450000,confidence_adjusted_pipeline:90000,average_trust_score:72,recommended_actions:[]}};
+  const context=createContext({window:null,state:{auth:true,revenueMissions:[mission],portfolio:{products:[]}},document:{head:{appendChild(){}},createElement:()=>({}),getElementById:id=>elements[id]||null,querySelectorAll:()=>[]},$:id=>elements[id]||null,esc:value=>String(value??''),can:()=>true,dashboard:()=>'<main>Dashboard only</main>',openMarketScenarios:async()=>{modalCard.innerHTML='<h2>Saved Market Opportunity Scenarios</h2><div>Saved analysis</div>'},setTimeout:()=>0,api:async()=>({missions:[mission]}),toast:()=>{},closeModal:()=>{},Intl,Date,String,Number,Set,Map,console});context.window=context;runInContext(ui,context);
+  assert.equal(context.dashboard(),'<main>Dashboard only</main>');
+  await context.openMarketScenarios();
+  assert.match(modalCard.innerHTML,/Saved Market Opportunity Scenarios/);assert.match(modalCard.innerHTML,/Revenue target progress/);assert.match(modalCard.innerHTML,/Regional Growth/);assert.match(modalCard.innerHTML,/\$500,000/);assert.match(modalCard.innerHTML,/savedScenarioRevenueMissionContent/);
 });
 
 test('Revenue Mission cards preview and export linked scenario data through the shared Full Market Analysis pipeline',async()=>{
