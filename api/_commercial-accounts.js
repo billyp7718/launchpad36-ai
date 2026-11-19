@@ -9,7 +9,9 @@ export const COMMERCIAL_ACCOUNT_CATEGORIES=Object.freeze([
  {key:'hospitality',label:'Hospitality'},
  {key:'large_corporations',label:'Large Corporations'}
 ]);
+export const ACCOUNT_WORKSPACE_SECTIONS=Object.freeze(['commercial_goods','services']);
 const CATEGORY_KEYS=new Set(COMMERCIAL_ACCOUNT_CATEGORIES.map(category=>category.key));
+const ACCOUNT_WORKSPACE_SECTION_KEYS=new Set(ACCOUNT_WORKSPACE_SECTIONS);
 let schemaReady;
 
 const clean=(value,max=300)=>String(value??'').replace(/\s+/g,' ').trim().slice(0,max);
@@ -19,6 +21,9 @@ export function normalizeCommercialCategory(value=''){
  const key=clean(value,80).toLowerCase().replace(/&/g,'and').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
  const aliases={health_care:'healthcare',public_sector:'government',small_businesses:'small_business',smb:'small_business',large_corporation:'large_corporations',enterprise:'large_corporations',corporate:'large_corporations'};
  const normalized=aliases[key]||key;return CATEGORY_KEYS.has(normalized)?normalized:'';
+}
+export function normalizeAccountWorkspaceSection(value='commercial_goods'){
+ const key=clean(value||'commercial_goods',40).toLowerCase();return ACCOUNT_WORKSPACE_SECTION_KEYS.has(key)?key:'';
 }
 export function normalizeCommercialSubcategory(value='',accountCategory=''){
  const key=clean(value,80).toLowerCase().replace(/&/g,'and').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
@@ -44,7 +49,7 @@ export function normalizeCommercialAccountRecord(row={}){
   decision_maker:decisionMakerName?{name:decisionMakerName,title:decisionMakerTitle,department:clean(value(row,'decision_maker_department','Decision Maker Department')||nestedDecisionMaker.department,180),category_scope:clean(value(row,'decision_maker_category','Decision Maker Category','Decision Maker Category Scope','Buyer Category')||nestedDecisionMaker.category_scope,240),email:decisionMakerEmail,phone:clean(value(row,'decision_maker_phone','Decision Maker Phone','Buyer Phone')||nestedDecisionMaker.phone,80),linkedin:decisionMakerLinkedin,source_url:normalizePublicUrl(value(row,'decision_maker_source_url','Decision Maker Source URL')||nestedDecisionMaker.source_url),confidence:Math.min(100,Math.max(0,Math.round(number(value(row,'decision_maker_confidence','Decision Maker Confidence','Confidence')||nestedDecisionMaker.confidence)))),verification_status:clean(value(row,'decision_maker_verification_status','Decision Maker Verification Status')||nestedDecisionMaker.verification_status||'UNCONFIRMED',40).toUpperCase()}:null
  };
 }
-export function commercialAccountPreviewHash(records=[]){return crypto.createHash('sha256').update(JSON.stringify(records)).digest('hex')}
+export function commercialAccountPreviewHash(records=[],sectionKey='commercial_goods'){return crypto.createHash('sha256').update(JSON.stringify({section_key:normalizeAccountWorkspaceSection(sectionKey),records})).digest('hex')}
 
 export async function ensureCommercialAccountSchema(sql=db()){
  if(schemaReady)return schemaReady;
@@ -52,6 +57,7 @@ export async function ensureCommercialAccountSchema(sql=db()){
   await transaction`select pg_advisory_xact_lock(hashtextextended('launchpad36_commercial_accounts_schema',0))`;
   await transaction`create table if not exists commercial_accounts(
     id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+    application_sections text[] not null default array['commercial_goods']::text[],
     name text not null, domain text not null default '', website text not null default '',
     account_category text not null check(account_category in('healthcare','government','small_business','hospitality','large_corporations')), account_subcategory text not null default '',
     organization_type text not null default 'commercial_account', headquarters text not null default '', region text not null default '',
@@ -60,7 +66,9 @@ export async function ensureCommercialAccountSchema(sql=db()){
     active boolean not null default true, created_by uuid references manufacturer_members(id) on delete set null,
     created_at timestamptz not null default now(), updated_at timestamptz not null default now()
   )`;
+  await transaction`alter table commercial_accounts add column if not exists application_sections text[] not null default array['commercial_goods']::text[]`;
   await transaction`alter table commercial_accounts add column if not exists account_subcategory text not null default ''`;
+  await transaction`create index if not exists commercial_accounts_tenant_sections_idx on commercial_accounts using gin(application_sections)`;
   await transaction`create unique index if not exists commercial_accounts_tenant_name_uq on commercial_accounts(manufacturer_id,lower(name))`;
   await transaction`create index if not exists commercial_accounts_tenant_category_idx on commercial_accounts(manufacturer_id,account_category,active,name)`;
   await transaction`create index if not exists commercial_accounts_tenant_subcategory_idx on commercial_accounts(manufacturer_id,account_category,account_subcategory,active,name)`;
@@ -77,12 +85,14 @@ export async function ensureCommercialAccountSchema(sql=db()){
   await transaction`create index if not exists commercial_decision_makers_tenant_account_idx on commercial_decision_makers(manufacturer_id,commercial_account_id,active,updated_at desc)`;
   await transaction`create table if not exists commercial_account_import_runs(
     id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
+    application_section text not null default 'commercial_goods',
     source_name text not null default '', preview_hash text not null default '', rows_seen integer not null default 0,
     accounts_added integer not null default 0, accounts_updated integer not null default 0, decision_makers_added integer not null default 0,
     duplicates_prevented integer not null default 0, rows_rejected integer not null default 0, status text not null default 'started',
     errors jsonb not null default '[]'::jsonb, created_by uuid references manufacturer_members(id) on delete set null,
     created_at timestamptz not null default now(), finished_at timestamptz
   )`;
+  await transaction`alter table commercial_account_import_runs add column if not exists application_section text not null default 'commercial_goods'`;
   await transaction`create index if not exists commercial_account_import_runs_tenant_idx on commercial_account_import_runs(manufacturer_id,created_at desc)`;
  }))().catch(error=>{schemaReady=null;throw error});
  return schemaReady;
