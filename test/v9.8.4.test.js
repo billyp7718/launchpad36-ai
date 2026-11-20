@@ -18,8 +18,10 @@ function verifiedRecord(overrides={}){
 
 test('V9.8.4 migration is additive, idempotent, tenant scoped, and append-only',()=>{
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/create table if not exists buyer_research_settings/i);
-  assert.match(BUYER_RESEARCH_RUNNER_SQL,/automatic_refresh_enabled boolean not null default false/i);
+  assert.match(BUYER_RESEARCH_RUNNER_SQL,/automatic_refresh_enabled boolean not null default true/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/refresh_interval_days integer not null default 30/i);
+  assert.match(BUYER_RESEARCH_RUNNER_SQL,/refresh_policy_version integer not null default 2/i);
+  assert.match(BUYER_RESEARCH_RUNNER_SQL,/where refresh_policy_version<2 and zero_paid_api_mode=true/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/zero_paid_authorized boolean not null default false/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/create table if not exists buyer_research_jobs/i);
   assert.match(BUYER_RESEARCH_RUNNER_SQL,/create unique index if not exists buyer_research_jobs_one_active_uq/i);
@@ -131,13 +133,14 @@ test('OpenAI research supports merchant roles, source classification, and verifi
 test('Vercel schedules bounded research ticks and grants adequate function duration',()=>{
   const config=JSON.parse(read('vercel.json'));
   assert.deepEqual(config.functions['api/buyer-research-runner-tick.js'],{maxDuration:240});
-  assert.ok(config.crons.some(item=>item.path==='/api/buyer-research-runner-tick'&&item.schedule==='* * * * *'));
+  assert.ok(config.crons.some(item=>item.path==='/api/buyer-research-runner-tick'&&item.schedule==='0 * * * *'));
   const tick=read('api/buyer-research-runner-tick.js');
   assert.match(tick,/ensureScheduledBuyerResearchJob/);
   assert.match(tick,/BUYER_RESEARCH_RUNNER_SQL/);
   assert.match(tick,/information_schema\.columns/);
   assert.match(tick,/required\.every/);
   assert.match(tick,/sql\.unsafe\(BUYER_RESEARCH_RUNNER_SQL\)/);
+  assert.match(tick,/buyer_research_settings','refresh_policy_version/);
 });
 
 test('bulk research has no paid-provider import or fallback',()=>{

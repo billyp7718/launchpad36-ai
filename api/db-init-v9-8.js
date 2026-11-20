@@ -275,6 +275,11 @@ alter table buyers add column if not exists employment_evidence_url text not nul
 alter table buyers add column if not exists employment_last_verified timestamptz;
 alter table buyers add column if not exists relationship_review_reason text not null default '';
 alter table buyers add column if not exists replacement_search_required boolean not null default false;
+alter table buyers add column if not exists email_source_url text not null default '';
+alter table buyers add column if not exists email_evidence_quote text not null default '';
+alter table buyers add column if not exists email_source_type text not null default '';
+alter table buyers add column if not exists email_verification_status text not null default 'NOT_FOUND';
+alter table buyers add column if not exists email_last_verified timestamptz;
 update buyers set category_scope=category where category_scope='' and coalesce(category,'')<>'';
 update buyers set category_evidence_source='legacy category field',category_verification_status='UNCONFIRMED',category_confidence=0 where category_scope<>'' and category_evidence_url='' and category_verification_status='UNCONFIRMED';
 create index if not exists buyers_category_verification_idx on buyers(category_verification_status,category_confidence desc);

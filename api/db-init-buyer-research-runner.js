@@ -5,13 +5,17 @@ export const BUYER_RESEARCH_RUNNER_SQL=`
 create table if not exists buyer_research_settings(
  manufacturer_id uuid primary key references manufacturers(id) on delete cascade,
  zero_paid_api_mode boolean not null default true, allow_paid_bulk_research boolean not null default false,
- max_public_pages_per_account integer not null default 10, min_interval_seconds integer not null default 120,
- automatic_refresh_enabled boolean not null default false, refresh_interval_days integer not null default 30,
+ max_public_pages_per_account integer not null default 4, min_interval_seconds integer not null default 3600,
+ automatic_refresh_enabled boolean not null default true, refresh_interval_days integer not null default 30,
+ refresh_policy_version integer not null default 2,
  updated_by_user_id uuid references manufacturer_members(id) on delete set null,
  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
-alter table buyer_research_settings add column if not exists automatic_refresh_enabled boolean not null default false;
+alter table buyer_research_settings add column if not exists automatic_refresh_enabled boolean not null default true;
 alter table buyer_research_settings add column if not exists refresh_interval_days integer not null default 30;
+alter table buyer_research_settings add column if not exists refresh_policy_version integer not null default 1;
+alter table buyer_research_settings alter column automatic_refresh_enabled set default true;
+update buyer_research_settings set automatic_refresh_enabled=true,max_public_pages_per_account=least(max_public_pages_per_account,4),min_interval_seconds=greatest(min_interval_seconds,3600),refresh_interval_days=greatest(refresh_interval_days,30),refresh_policy_version=2,updated_at=now() where refresh_policy_version<2 and zero_paid_api_mode=true;
 
 create table if not exists buyer_research_jobs(
  id uuid primary key default gen_random_uuid(), manufacturer_id uuid not null references manufacturers(id) on delete cascade,
