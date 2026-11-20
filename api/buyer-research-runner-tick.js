@@ -9,6 +9,7 @@ async function ensureResearchSchema(sql){
   const required=[
     ['buyer_research_settings','automatic_refresh_enabled'],
     ['buyer_research_settings','refresh_interval_days'],
+    ['buyer_research_settings','refresh_policy_version'],
     ['buyer_research_jobs','research_mode'],
     ['buyer_research_jobs','zero_paid_runs'],
     ['buyer_research_jobs','zero_paid_authorized'],

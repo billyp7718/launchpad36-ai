@@ -40,7 +40,7 @@
     },
     {
       "path": "/api/buyer-research-runner-tick",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }

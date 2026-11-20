@@ -44,6 +44,7 @@ import { COMMERCIAL_FITNESS_PREVIEW } from '../api/_commercial-fitness-preview.j
 import { COMMERCIAL_HOTELS_PREVIEW } from '../api/_commercial-hotels-preview.js';
 import { normalizeCommercialContactResearch } from '../api/_commercial-contact-research.js';
 import { normalizeCommercialResearchContactForSave } from '../api/commercial-account-deep-search.js';
+import { buyerContactRole, canonicalContactUrl, extractPublishedEmails, searchPublicBuyerEmails } from '../api/_buyer-contact-waterfall.js';
 
 test('central authorization matrix grants only the intended role capabilities',()=>{
   const expected={
@@ -862,9 +863,36 @@ test('buyer intelligence migration preserves legacy categories without claiming 
 test('buyer relationship migration is additive, append-only and revalidation-ready',async()=>{
   const migration=await readFile(new URL('../api/db-init-v9-8.js',import.meta.url),'utf8');
   for(const column of ['employment_verification_status','employment_evidence_url','employment_last_verified','relationship_review_reason','replacement_search_required'])assert.match(migration,new RegExp(`buyers add column if not exists ${column}`));
+  for(const column of ['email_source_url','email_evidence_quote','email_source_type','email_verification_status','email_last_verified'])assert.match(migration,new RegExp(`buyers add column if not exists ${column}`));
   assert.match(migration,/create table if not exists buyer_category_relationships/);
   assert.match(migration,/create trigger buyer_category_relationships_immutable/);
   assert.doesNotMatch(migration,/drop\s+(table|column)|truncate\s+|delete\s+from\s+(buyers|accounts|retail_organizations)/i);
+});
+
+test('buyer email research accepts only cited, explicitly displayed addresses and searches one buyer at a time',async()=>{
+  assert.deepEqual(extractPublishedEmails('Contact Jane at jane [at] retailer [dot] example for vendor inquiries.'),['jane@retailer.example']);
+  assert.equal(canonicalContactUrl('https://www.retailer.example/team/jane/?utm_source=test#bio'),'https://retailer.example/team/jane');
+  assert.equal(buyerContactRole('Divisional Merchandise Manager, Consumer Electronics'),true);
+  const previous=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY='regression-test-key';const prompts=[];
+  try{
+    const result=await searchPublicBuyerEmails({account:'Retailer Example',domain:'retailer.example',buyers:[{name:'Jane Merchant',title:'DMM, Audio',category_scope:'Audio'},{name:'John Buyer',title:'Senior Buyer',category_scope:'Appliances'}]},{maxBuyers:2,concurrency:1,fetcher:async(_url,options)=>{
+      const request=JSON.parse(options.body);prompts.push(request.input);const jane=request.input.includes('Jane Merchant'),source=jane?'https://www.retailer.example/team/jane/?utm_source=research':'https://retailer.example/team/john';
+      const match=jane?{name:'Jane Merchant',title:'DMM, Audio',email:'jane@retailer.example',source_url:'https://retailer.example/team/jane',source_title:'Retailer team',evidence_quote:'Jane Merchant — jane [at] retailer [dot] example',confidence:91}:{name:'John Buyer',title:'Senior Buyer',email:'john@retailer.example',source_url:source,source_title:'Retailer team',evidence_quote:'John Buyer leads purchasing.',confidence:90};
+      return {ok:true,status:200,json:async()=>({output:[{type:'web_search_call',action:{sources:[{url:source,title:'Retailer team'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({matches:[match]})}]}]})};
+    }});
+    assert.equal(result.status,'SUCCESS');assert.equal(result.matches.length,1);assert.equal(result.matches[0].email,'jane@retailer.example');assert.equal(result.matches[0].verification_status,'PUBLICLY_VERIFIED');assert.ok(result.rejected>=1);
+    assert.ok(prompts.every(prompt=>!(prompt.includes('Jane Merchant')&&prompt.includes('John Buyer'))));
+    assert.equal(prompts.filter(prompt=>prompt.includes('Jane Merchant')).length,1);assert.equal(prompts.filter(prompt=>prompt.includes('John Buyer')).length,2);
+  }finally{if(previous===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=previous}
+});
+
+test('deep buyer email waterfall never predicts personal contact details and persists evidence separately',async()=>{
+  const [deep,waterfall,shell,retryUi]=await Promise.all([readFile(new URL('../api/buyer-deep-search.js',import.meta.url),'utf8'),readFile(new URL('../api/_buyer-contact-waterfall.js',import.meta.url),'utf8'),readFile(new URL('../api/app-shell.js',import.meta.url),'utf8'),readFile(new URL('../buyer-retry-ui.js',import.meta.url),'utf8')]);
+  assert.doesNotMatch(deep,/PREDICTED_NOT_VERIFIED|Corporate email pattern|function predicted/);
+  assert.match(deep,/PUBLICLY_VERIFIED/);assert.match(deep,/PROVIDER_VERIFIED/);assert.match(deep,/EVIDENCE_REJECTED/);assert.match(deep,/CREDITS_EXHAUSTED/);
+  for(const field of ['email_source_url','email_evidence_quote','email_source_type','email_verification_status','email_last_verified']){assert.match(deep,new RegExp(field));assert.match(waterfall,new RegExp(field))}
+  assert.match(waterfall,/providerVerified\(person\.email_status\)\?validPublishedEmail/);
+  assert.match(shell,/buyer-retry-ui\.js/);assert.match(retryUi,/buyer-research-resilient/);
 });
 
 test('deep buyer search appends relationship history with valid PostgreSQL syntax',async()=>{
@@ -1430,7 +1458,7 @@ test('retailer discovery, opportunity alerts and buyer reporting use the schedul
   const [agent,weekly,living,ui,status,config]=await Promise.all([readFile(new URL('../api/retailer-discovery-agent.js',import.meta.url),'utf8'),readFile(new URL('../api/weekly-refresh.js',import.meta.url),'utf8'),readFile(new URL('../api/living-intelligence-refresh.js',import.meta.url),'utf8'),readFile(new URL('../index.html',import.meta.url),'utf8'),readFile(new URL('../api/system-status.js',import.meta.url),'utf8'),readFile(new URL('../vercel.json',import.meta.url),'utf8')]);
   assert.match(agent,/searchOpenAIRetailers/);assert.match(agent,/DISCOVERY_CANDIDATE/);assert.match(agent,/runLivingIntelligencePipeline/);assert.match(agent,/where active=true and \(lower\(regexp_replace\(domain/);
   assert.match(weekly,/runRetailerDiscovery/);assert.match(weekly,/weekly-retailer-discovery/);assert.match(living,/runOpportunityAlertRefresh/);assert.match(ui,/Discover New Accounts/);assert.match(ui,/Runs every Monday/);assert.match(status,/Retailer Discovery/);
-  const crons=JSON.parse(config).crons;assert.equal(crons.length,4);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-intelligence-weekly-report'&&x.schedule==='0 13,14 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-research-runner-tick'&&x.schedule==='* * * * *'));
+  const crons=JSON.parse(config).crons;assert.equal(crons.length,4);assert.ok(crons.some(x=>x.path==='/api/weekly-refresh'&&x.schedule==='0 13 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-intelligence-weekly-report'&&x.schedule==='0 13,14 * * 1'));assert.ok(crons.some(x=>x.path==='/api/buyer-research-runner-tick'&&x.schedule==='0 * * * *'));
 });
 
 test('account research modal keeps product research visible across screen sizes',async()=>{
