@@ -27,14 +27,14 @@ export function registryTargets(agencies) {
   }));
 }
 const fields = ['name','website','source_url','region','account_category','channel'];
-export async function discover(query, exclude = []) {
+export async function discover(query, exclude = [], fetcher = fetch) {
   if (/^(?:(?:all|list|find|the|municipal|local|statewide)\s+)*(?:(?:new jersey|nj) police departments?|police departments? (?:in |across )?(?:new jersey|nj))[.!?]?$/i.test(query) && !exclude.length) {
     const [registry,directory] = await Promise.allSettled([
-      fetch(njRegistry, {signal:AbortSignal.timeout(18000)}).then(async r=>{
+      fetcher(njRegistry, {signal:AbortSignal.timeout(18000)}).then(async r=>{
         if (!r.ok) throw new Error('Agency registry unavailable');
         return registryTargets((await r.json()).agencies);
       }),
-      fetch(njDirectory, {signal:AbortSignal.timeout(18000)}).then(async r=>{
+      fetcher(njDirectory, {signal:AbortSignal.timeout(18000)}).then(async r=>{
         if (!r.ok) throw new Error('Department directory unavailable');
         return directoryTargets(await r.text());
       })
@@ -47,7 +47,7 @@ export async function discover(query, exclude = []) {
     throw new Error('The NJ agency directories are unavailable. Try again later.');
   }
   if (!process.env.OPENAI_API_KEY) throw new Error('Web research is not configured.');
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const response = await fetcher('https://api.openai.com/v1/responses', {
     method:'POST', signal:AbortSignal.timeout(140000),
     headers:{authorization:'Bearer '+process.env.OPENAI_API_KEY,'content-type':'application/json'},
     body:JSON.stringify({
