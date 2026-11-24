@@ -8,7 +8,7 @@ import { discover } from './_lead-discovery.js';
 
 const clean = (value, size=180) => String(value || '').trim().slice(0,size);
 const invalid = message => Object.assign(new Error(message), {status:400});
-async function mailingTable(sql) {
+export async function ensureLeadGenerationRecipientSchema(sql) {
   await sql`create table if not exists lead_generation_recipients (
     manufacturer_id uuid not null references manufacturers(id) on delete cascade,
     section_key text not null, email text not null, name text not null, title text not null,
@@ -25,12 +25,15 @@ function readContacts(rows) {
 }
 async function saveAccount(tx, tenant, section, target, contacts) {
   const name=clean(target.name), domain=domainFromWebsite(target.website), website=normalizePublicUrl(target.website),
-    source=normalizePublicUrl(target.source_url), region=clean(target.region), category=normalizeCommercialCategory(target.account_category);
+    source=normalizePublicUrl(target.source_url), region=clean(target.region), category=normalizeCommercialCategory(target.account_category), searchCategory=clean(target.search_category,240), channel=clean(target.channel,120);
   if (!name || !source || !category) throw invalid('An account needs a name, category and source.');
   if (section==='consumer_goods') {
-    const [org]=await tx`insert into retail_organizations(name,domain,organization_type,categories,region,source_url)
-      values(${name},${domain},${clean(target.channel)||'prospect'},array[${category}]::text[],${region},${source})
-      on conflict(lower(name)) do update set name=retail_organizations.name where retail_organizations.active returning id`;
+    const [org]=await tx`insert into retail_organizations(name,domain,organization_type,channel_codes,categories,region,source_url)
+      values(${name},${domain},${channel||'prospect'},${channel?[channel]:[]},${[...new Set([category,searchCategory].filter(Boolean))]},${region},${source})
+      on conflict(lower(name)) do update set name=retail_organizations.name,
+      channel_codes=array(select distinct item from unnest(retail_organizations.channel_codes || excluded.channel_codes) item),
+      categories=array(select distinct item from unnest(retail_organizations.categories || excluded.categories) item)
+      where retail_organizations.active returning id`;
     if (!org) throw invalid('This account is archived.');
     const [account]=await tx`insert into accounts(name,organization_id,domain,source,source_url) values(${name},${org.id},${domain},'lead_generation',${source})
       on conflict(lower(name)) do update set organization_id=coalesce(accounts.organization_id,excluded.organization_id)
@@ -41,10 +44,13 @@ async function saveAccount(tx, tenant, section, target, contacts) {
       on conflict(account_id,lower(name),lower(title)) do nothing`;
     return;
   }
-  const [account]=await tx`insert into commercial_accounts(manufacturer_id,application_sections,name,domain,website,account_category,organization_type,region,source_url,source_type,created_by)
-    values(${tenant.tenant_id},array[${section}]::text[],${name},${domain},${website},${category},${clean(target.channel)||'prospect'},${region},${source},'lead_generation',${tenant.user_id})
+  const [account]=await tx`insert into commercial_accounts(manufacturer_id,application_sections,name,domain,website,account_category,organization_type,region,source_url,source_type,search_category,created_by)
+    values(${tenant.tenant_id},array[${section}]::text[],${name},${domain},${website},${category},${channel||'prospect'},${region},${source},'lead_generation',${searchCategory},${tenant.user_id})
     on conflict(manufacturer_id,lower(name)) do update set application_sections=case when ${section}=any(commercial_accounts.application_sections)
-    then commercial_accounts.application_sections else array_append(commercial_accounts.application_sections,${section}) end where commercial_accounts.active returning id`;
+    then commercial_accounts.application_sections else array_append(commercial_accounts.application_sections,${section}) end,
+    search_category=case when excluded.search_category='' or strpos(lower(commercial_accounts.search_category),lower(excluded.search_category))>0 then commercial_accounts.search_category
+    when commercial_accounts.search_category='' then excluded.search_category else commercial_accounts.search_category||' · '||excluded.search_category end
+    where commercial_accounts.active returning id`;
   if (!account) throw invalid('This account is archived.');
   for (const c of contacts) await tx`insert into commercial_decision_makers(manufacturer_id,commercial_account_id,name,title,email,phone,category_scope,source_url,verification_status)
     values(${tenant.tenant_id},${account.id},${c.name},${c.title},${c.email},${c.phone},${c.scope},${c.source},'REVIEW_REQUIRED')
@@ -58,7 +64,7 @@ export default async function handler(req,res) {
   if (!tenant) return;
   try {
     if (req.method==='GET') {
-      const sql=db(); await mailingTable(sql);
+      const sql=db(); await ensureLeadGenerationRecipientSchema(sql);
       const recipients=await sql`select account,name,title,email,source_url from lead_generation_recipients where manufacturer_id=${tenant.tenant_id} and section_key=${section} order by account,name`;
       return res.json({recipients});
     }
@@ -84,7 +90,7 @@ export default async function handler(req,res) {
       if (section!=='consumer_goods') await ensureCommercialAccountSchema(sql);
       await sql.begin(tx=>saveAccount(tx,tenant,section,target,selected));
     } else {
-      await mailingTable(sql);
+      await ensureLeadGenerationRecipientSchema(sql);
       await sql.begin(async tx=>{
         for (const c of selected.filter(c=>c.email)) await tx`insert into lead_generation_recipients(manufacturer_id,section_key,email,name,title,account,source_url)
           values(${tenant.tenant_id},${section},${c.email},${c.name},${c.title},${clean(target.name)},${c.contactSource}) on conflict do nothing`;
