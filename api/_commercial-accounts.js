@@ -68,6 +68,7 @@ export async function ensureCommercialAccountSchema(sql=db()){
   )`;
   await transaction`alter table commercial_accounts add column if not exists application_sections text[] not null default array['commercial_goods']::text[]`;
   await transaction`alter table commercial_accounts add column if not exists account_subcategory text not null default ''`;
+  await transaction`alter table commercial_accounts add column if not exists search_category text not null default ''`;
   await transaction`create index if not exists commercial_accounts_tenant_sections_idx on commercial_accounts using gin(application_sections)`;
   await transaction`create unique index if not exists commercial_accounts_tenant_name_uq on commercial_accounts(manufacturer_id,lower(name))`;
   await transaction`create index if not exists commercial_accounts_tenant_category_idx on commercial_accounts(manufacturer_id,account_category,active,name)`;

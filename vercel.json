@@ -1,6 +1,7 @@
 {
   "functions": {
     "api/lead-generation.js": { "maxDuration": 240 },
+    "api/lead-generation-email.js": { "maxDuration": 60 },
     "api/account-research.js": { "maxDuration": 240 },
     "api/buyer-intelligence.js": { "maxDuration": 240 },
     "api/buyer-deep-search.js": { "maxDuration": 240 },
