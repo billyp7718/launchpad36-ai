@@ -62,7 +62,7 @@ export function buyerProfiles(rows=[]){
   for(const row of rows){
     const key=String(row.organization_id||'');if(!key)continue;
     const current=profiles.get(key)||[];
-    if(current.length<5)current.push({id:row.id,name:row.name,title:row.title,email:row.email||'',phone:row.phone||'',linkedin:row.linkedin||'',category:row.category||'',source_url:row.source_url||'',confidence:Number(row.confidence)||0,verification_status:row.verification_status||row.status||'UNKNOWN',updated_at:row.updated_at||null});
+    if(current.length<8)current.push({id:row.id,name:row.name,title:row.title,email:row.email||'',phone:row.phone||'',linkedin:row.linkedin||'',category:row.category||'',department:row.department||'',category_scope:row.category_scope||row.category||'',subcategory_scope:row.subcategory_scope||'',buyer_role:row.buyer_role||'UNCONFIRMED',identity_confidence:Number(row.identity_confidence??row.confidence)||0,category_confidence:Number(row.category_confidence)||0,employment_verification_status:row.employment_verification_status||row.verification_status||row.status||'UNKNOWN',category_verification_status:row.category_verification_status||'UNCONFIRMED',employment_evidence_url:row.employment_evidence_url||row.source_url||'',category_evidence_url:row.category_evidence_url||'',category_last_verified:row.category_last_verified||null,source_url:row.source_url||'',confidence:Number(row.confidence)||0,verification_status:row.verification_status||row.status||'UNKNOWN',updated_at:row.updated_at||null});
     profiles.set(key,current);
   }
   return profiles;

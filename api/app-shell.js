@@ -31,6 +31,7 @@ export default async function handler(req,res){
       '/retail-industry-news-ui.js',
       '/market-opportunity-controls-ui.js',
       '/market-account-scope-ui.js',
+      '/find-revenue-plan-ui.js',
       '/intelligence-foundation-ui.js',
       '/sell-in-scenario-ui.js',
       '/revenue-missions-ui.js',
