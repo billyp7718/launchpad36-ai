@@ -163,7 +163,7 @@ export async function ensureScheduledBuyerResearchJob({manufacturerId,req=null},
   }
   const current=now(),lastAt=latest?new Date(latest.completed_at||latest.created_at):null,intervalMs=Number(settings.refresh_interval_days||30)*86400000;
   if(lastAt&&Number.isFinite(lastAt.getTime())&&current-lastAt<intervalMs)return {status:'NOT_DUE',job:latest,next_due_at:new Date(lastAt.getTime()+intervalMs).toISOString()};
-  const key=`zero-paid-auto-${current.toISOString().slice(0,10)}`,created=await createBuyerResearchJob({manufacturerId,idempotencyKey:key,maxAttempts:2,minIntervalSeconds:settings.min_interval_seconds,maxConcurrency:1,limit:500,req},{sql});
+  const key=`zero-paid-auto-${current.toISOString().slice(0,10)}`,created=await createBuyerResearchJob({manufacturerId,idempotencyKey:key,maxAttempts:2,minIntervalSeconds:settings.min_interval_seconds,maxConcurrency:1,limit:5000,req},{sql});
   return {status:'SCHEDULED',...created};
 }
 
