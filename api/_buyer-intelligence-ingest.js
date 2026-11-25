@@ -48,7 +48,8 @@ export function authoritativeCategory(record={}){
 }
 
 export function buyerImportRecordKey(record={}){
-  return createHash('sha256').update([record.account_domain||normalized(record.account_name),record.public_profile_url||normalized(record.name)].join('|')).digest('hex');
+  const identity=record.public_profile_url||String(record.public_email||'').trim().toLowerCase()||normalized(record.name);
+  return createHash('sha256').update([record.account_domain||normalized(record.account_name),identity].join('|')).digest('hex');
 }
 
 export function buyerImportPayloadHash(records=[]){return createHash('sha256').update(JSON.stringify(records)).digest('hex')}
