@@ -38,7 +38,11 @@ function normalizeBuyerIdentity(value=''){
   return String(value||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'');
 }
 function normalizeBuyerProfile(value=''){
-  return String(value||'').trim().toLowerCase().replace(/^https?:\\/\\//,'').replace(/^www\\./,'').split(/[?#]/,1)[0].replace(/\\/+$/,'');
+  let normalized=String(value||'').trim().toLowerCase().split(/[?#]/,1)[0];
+  if(normalized.startsWith('https://'))normalized=normalized.slice(8);else if(normalized.startsWith('http://'))normalized=normalized.slice(7);
+  if(normalized.startsWith('www.'))normalized=normalized.slice(4);
+  while(normalized.endsWith('/'))normalized=normalized.slice(0,-1);
+  return normalized;
 }
 export async function upsertBuyer(b={}) {
   const sql=db(),accountId=b.account_id||null,name=String(b.name||'').trim(),title=String(b.title||'').trim(),
