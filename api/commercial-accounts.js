@@ -45,7 +45,7 @@ export default async function handler(req,res){
  const sql=db();await ensureCommercialAccountSchema(sql);res.setHeader('Cache-Control','private, no-store');
  try{
   if(req.method==='GET'){
-   const q=clean(req.query?.q,180),category=normalizeCommercialCategory(req.query?.category),subcategory=normalizeCommercialSubcategory(req.query?.subcategory,category),limit=Math.min(500,Math.max(1,Number(req.query?.limit)||250));
+   const q=clean(req.query?.q,180),category=normalizeCommercialCategory(req.query?.category),subcategory=normalizeCommercialSubcategory(req.query?.subcategory,category),limit=Math.min(5000,Math.max(1,Number(req.query?.limit)||500));
    if(req.query?.category&&!category)return res.status(400).json({error:`Unknown ${sectionLabel} account category`});
    if(req.query?.subcategory&&!subcategory)return res.status(400).json({error:`Unknown ${sectionLabel} account subcategory`});
    const [rows,countRows]=await Promise.all([
