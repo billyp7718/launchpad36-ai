@@ -75,8 +75,7 @@ export default async function handler(req,res){
           if(!updated)throw new Error('Buyer merge winner could not be updated');
           current=updated;
           await tx`update buyers set merged_into_buyer_id=${winner.id},merged_at=now(),status='Merged',updated_at=now() where id=${loser.id} and merged_into_buyer_id is null`;
-          await tx`update buyer_intelligence_import_items set buyer_id=${winner.id} where buyer_id=${loser.id}`;
-          await tx`update buyer_intelligence_audit_events set buyer_id=${winner.id} where buyer_id=${loser.id}`;
+          // Immutable import and audit rows keep their original buyer reference; the merged buyer row remains as the historical tombstone.
           merged++;
         }
         groupsMerged++;
