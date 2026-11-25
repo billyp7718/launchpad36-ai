@@ -42,8 +42,9 @@ export function buyerResearchRecord(person={},organization={},observedAt=new Dat
 }
 
 function matchingBuyer(record,existing=[]){
-  const profile=clean(record.public_profile_url,500).toLowerCase(),name=normalized(record.name);
-  if(profile){const matched=existing.find(item=>clean(item.linkedin,500).toLowerCase()===profile);if(matched)return matched}
+  const profile=clean(record.public_profile_url,500).toLowerCase().replace(/^https?:\/\/www\./,'https://').replace(/\/$/,''),email=clean(record.public_email,200).toLowerCase(),name=normalized(record.name);
+  if(profile){const matched=existing.find(item=>clean(item.linkedin,500).toLowerCase().replace(/^https?:\/\/www\./,'https://').replace(/\/$/,'')===profile);if(matched)return matched}
+  if(email){const matched=existing.find(item=>clean(item.email,200).toLowerCase()===email);if(matched)return matched}
   return existing.find(item=>normalized(item.name)===name)||null;
 }
 
